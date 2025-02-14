@@ -15,6 +15,8 @@ HID_Wheel    wheel(&Usb);
 // Objets Alfredo
 HardwareSerial crsfSerialOut(2);
 AlfredoCRSF crsfOut;
+// Pour limiter à 100Hz
+static unsigned long lastSend = 0;
 
 void setup() {
   Serial.begin(115200);                  
@@ -34,7 +36,7 @@ void setup() {
   Serial.println("Serial  CRSF start");
   Serial.println(CRSF_BAUDRATE);
 
-  // init des gaz
+  // burst - init des gaz
   for (int i=0;i<200;i++){
     sendFallbackChannels();
     delay(5);
@@ -47,24 +49,28 @@ void loop() {
   Usb.Task();
 
   if (wheel.connected()) {
-    crsf_channels_t crsfChannels = { 0 };
-    crsfChannels.ch0 = wheel.volant_value;
-    crsfChannels.ch1 = CRSF_CHANNEL_VALUE_MID + wheel.accel_value - wheel.frein_value;
-    crsfChannels.ch2 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch3 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch4 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch5 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch6 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch7 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch8 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch9 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch10 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch11 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch12 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch13 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch14 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch15 = CRSF_CHANNEL_VALUE_MID;
-    crsfOut.writePacket(CRSF_ADDRESS_CRSF_TRANSMITTER, CRSF_FRAMETYPE_RC_CHANNELS_PACKED, &crsfChannels, sizeof(crsfChannels));
+    // On limite à ~100Hz
+    if (millis() - lastSend >= 10) {
+      lastSend = millis();
+      crsf_channels_t crsfChannels = { 0 };
+      crsfChannels.ch0 = wheel.volant_value;
+      crsfChannels.ch1 = CRSF_CHANNEL_VALUE_MID + wheel.accel_value - wheel.frein_value;
+      crsfChannels.ch2 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch3 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch4 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch5 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch6 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch7 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch8 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch9 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch10 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch11 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch12 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch13 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch14 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch15 = CRSF_CHANNEL_VALUE_MID;
+      crsfOut.writePacket(CRSF_ADDRESS_CRSF_TRANSMITTER, CRSF_FRAMETYPE_RC_CHANNELS_PACKED, &crsfChannels, sizeof(crsfChannels));
+    }
   }
 }
 
