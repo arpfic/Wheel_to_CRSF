@@ -37,7 +37,7 @@ void setup() {
   Serial.println(CRSF_BAUDRATE);
 
   // burst - init des gaz
-  for (int i=0;i<200;i++){
+  for (int i = 0; i < 200; i++){
     sendFallbackChannels();
     delay(5);
   }
@@ -45,7 +45,7 @@ void setup() {
  }
 
 void loop() {
-  // Gère la pile USB, déclenche Parse() en interruption quand un rapport arrive
+  // Gère la pile USB, déclenche Parse() quand un rapport arrive
   Usb.Task();
 
   if (wheel.connected()) {
