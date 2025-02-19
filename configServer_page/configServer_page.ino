@@ -27,37 +27,165 @@ const char index_html[] PROGMEM = R"rawliteral(
   <title>ESP32 Configuration</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: Arial; text-align: center; margin: 0px auto; padding: 15px; }
-    .slider { width: 300px; }
-    .config-item { margin: 20px; }
+    :root {
+      --primary-color: #007bff;
+      --primary-hover: #0056b3;
+      --border-color: #dee2e6;
+      --background-gray: #f8f9fa;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      line-height: 1.5;
+      color: #212529;
+      background-color: #fff;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      padding: 20px;
+    }
+    
+    h2 {
+      color: #212529;
+      text-align: center;
+      margin-bottom: 30px;
+      font-weight: 500;
+    }
+    
+    .form-group {
+      margin-bottom: 25px;
+      background-color: var(--background-gray);
+      padding: 20px;
+      border-radius: 6px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #495057;
+    }
+    
+    .slider {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      background: #dee2e6;
+      outline: none;
+      margin: 10px 0;
+    }
+    
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--primary-color);
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .slider::-webkit-slider-thumb:hover {
+      background: var(--primary-hover);
+    }
+    
+    .checkbox-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+    
+    .value-display {
+      display: inline-block;
+      min-width: 40px;
+      padding: 2px 8px;
+      background-color: var(--primary-color);
+      color: white;
+      border-radius: 4px;
+      text-align: center;
+      margin-left: 10px;
+    }
+    
+    .btn-submit {
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 500;
+      width: 100%;
+      transition: background-color 0.2s;
+    }
+    
+    .btn-submit:hover {
+      background-color: var(--primary-hover);
+    }
+    
+    @media (max-width: 480px) {
+      .container {
+        padding: 15px;
+      }
+      
+      .form-group {
+        padding: 15px;
+      }
+    }
   </style>
 </head>
 <body>
-  <h2>ESP32 Configuration</h2>
-  
-  <form action="/save" method="get">
-    <div class="config-item">
-      <label>Slider 1: <span id="s1val">%SLIDER1%</span></label><br>
-      <input type="range" name="slider1" min="0" max="100" value="%SLIDER1%" class="slider" oninput="s1val.innerHTML=this.value">
-    </div>
+  <div class="container">
+    <h2>ESP32 Configuration</h2>
     
-    <div class="config-item">
-      <label>Slider 2: <span id="s2val">%SLIDER2%</span></label><br>
-      <input type="range" name="slider2" min="0" max="100" value="%SLIDER2%" class="slider" oninput="s2val.innerHTML=this.value">
-    </div>
-    
-    <div class="config-item">
-      <input type="checkbox" name="checkbox1" %CHECKBOX1%>
-      <label>Checkbox 1</label>
-    </div>
-    
-    <div class="config-item">
-      <input type="checkbox" name="checkbox2" %CHECKBOX2%>
-      <label>Checkbox 2</label>
-    </div>
+    <form action="/save" method="get">
+      <div class="form-group">
+        <label>Slider 1: <span class="value-display" id="s1val">%SLIDER1%</span></label>
+        <input type="range" name="slider1" min="0" max="100" value="%SLIDER1%" class="slider" oninput="s1val.innerHTML=this.value">
+      </div>
+      
+      <div class="form-group">
+        <label>Slider 2: <span class="value-display" id="s2val">%SLIDER2%</span></label>
+        <input type="range" name="slider2" min="0" max="100" value="%SLIDER2%" class="slider" oninput="s2val.innerHTML=this.value">
+      </div>
+      
+      <div class="form-group">
+        <div class="checkbox-wrapper">
+          <input type="checkbox" name="checkbox1" id="checkbox1" %CHECKBOX1%>
+          <label for="checkbox1">Checkbox 1</label>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <div class="checkbox-wrapper">
+          <input type="checkbox" name="checkbox2" id="checkbox2" %CHECKBOX2%>
+          <label for="checkbox2">Checkbox 2</label>
+        </div>
+      </div>
 
-    <input type="submit" value="Save Configuration">
-  </form>
+      <button type="submit" class="btn-submit">Save Configuration</button>
+    </form>
+  </div>
 </body>
 </html>
 )rawliteral";
@@ -69,14 +197,6 @@ void loadConfig() {
 void saveConfig() {
   EEPROM.put(0, config);
   EEPROM.commit();
-}
-
-String processor(const String& var) {
-  if(var == "SLIDER1") return String(config.sliderValue1);
-  if(var == "SLIDER2") return String(config.sliderValue2);
-  if(var == "CHECKBOX1") return config.checkbox1 ? "checked" : "";
-  if(var == "CHECKBOX2") return config.checkbox2 ? "checked" : "";
-  return String();
 }
 
 void handleRoot() {
@@ -130,7 +250,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
-  Serial.println(config.sliderValue1);
+  
   // Your main loop code here
   // You can use config.sliderValue1, config.sliderValue2, 
   // config.checkbox1, and config.checkbox2 values
