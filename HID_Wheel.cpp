@@ -48,20 +48,21 @@ void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *
 
     // Accel. sur 8 bits (o18)
     uint16_t accel_raw = (uint16_t)buf[18];
-    accel_value = map(accel_raw, 0, 255, 0, 625);
+    accel_value = map(accel_raw, 0, 255, 0, 800);
 
     // Frein sur 8 bits (o17)
     uint16_t frein_raw = (uint16_t)buf[17];
-    frein_value = map(frein_raw, 0, 64, 0, 625);
+    frein_value = map(frein_raw, 0, 255, 0, 820);
 
+    //raw
     //printBin(buf, len);
-//    Serial.print("Trustmaster : ");
-//    Serial.print("  Volant=");
-//    Serial.print(volant_value);
-//    Serial.print("  Accel=");
-//    Serial.print(accel_value);
-//    Serial.print("  Frein=");
-//    Serial.println(frein_value);
+    //Serial.print("Trustmaster : ");
+    //Serial.print("  Volant=");
+    //Serial.print(volant_value);
+    //Serial.print("  Accel=");
+    //Serial.print(accel_value);
+    //Serial.print("  Frein=");
+    //Serial.println(frein_raw);
   }
   else if (isLogitech()) {
     // On suppose qu'il envoie 7 octets, etc.
@@ -91,13 +92,13 @@ void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *
         accel_raw = 16383 - accel_raw;
         accel_value = map(accel_raw, 0, 16383, 0, 625);
     }
-    Serial.print("Logitech : ");
-    Serial.print("  Volant=");
-    Serial.print(volant_value);
-    Serial.print("  Accel=");
-    Serial.print(accel_value);
-    Serial.print("  Frein=");
-    Serial.println(frein_value);
+//    Serial.print("Logitech : ");
+//    Serial.print("  Volant=");
+//    Serial.print(volant_value);
+//    Serial.print("  Accel=");
+//    Serial.print(accel_value);
+//    Serial.print("  Frein=");
+//    Serial.println(frein_value);
   }
 }
 
