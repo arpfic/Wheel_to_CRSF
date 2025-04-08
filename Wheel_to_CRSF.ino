@@ -16,6 +16,8 @@
 #define CRSF_VITESSE_MIN 700
 #define CRSF_VITESSE_MAX 1200
 
+#define OFFSET_VOLANT 73
+#define OFFSET_CAR 0
 #define OFFSET_CAR_1_18 158
 
 // Objets pour le shield USB
@@ -49,11 +51,25 @@ void setup() {
   Serial.println(CRSF_BAUDRATE);
 
   // burst - init des gaz
-  for (int i = 0; i < 200; i++){
+  for (int i = 0; i < 1000; i++){
     sendFallbackChannels();
     delay(5);
   }
-  Serial.println("Radiomaster ok...");
+
+  Serial.println("Radiomaster ok...Arming...");
+  Serial.println("Sending CRSF_CHANNEL_VALUE_MID...");
+  // MID
+  for (int i = 0; i < 1000; i++){
+    sendArm();
+    delay(5);
+  }
+  // MIN
+  for (int i = 0; i < 500; i++){
+    sendFallbackChannels();
+    delay(5);
+  }
+  Serial.println("Armed !");
+  
  }
 
 void loop() {
@@ -65,15 +81,15 @@ void loop() {
     if (millis() - lastSend >= 10) {
       lastSend = millis();
 
-      uint16_t volant_value = constrain(wheel.volant_value + OFFSET_CAR_1_18, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
-      uint16_t vitesse_value = constrain(CRSF_CHANNEL_VALUE_MID + wheel.accel_value - wheel.frein_value, CRSF_VITESSE_MIN, CRSF_VITESSE_MAX);
+      uint16_t volant_value = constrain(wheel.volant_value + OFFSET_CAR + OFFSET_VOLANT, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
+      uint16_t vitesse_value = constrain(CRSF_CHANNEL_VALUE_MID + wheel.accel_value - wheel.frein_value, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
 
       crsf_channels_t crsfChannels = { 0 };
-      crsfChannels.ch0 = volant_value;
-      crsfChannels.ch1 = vitesse_value;
+      crsfChannels.ch0 = vitesse_value;
+      crsfChannels.ch1 = volant_value;
       crsfChannels.ch2 = CRSF_CHANNEL_VALUE_MID;
       crsfChannels.ch3 = CRSF_CHANNEL_VALUE_MID;
-      crsfChannels.ch4 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch4 = CRSF_CHANNEL_VALUE_MIN; // MIN == armed
       crsfChannels.ch5 = CRSF_CHANNEL_VALUE_MID;
       crsfChannels.ch6 = CRSF_CHANNEL_VALUE_MID;
       crsfChannels.ch7 = CRSF_CHANNEL_VALUE_MID;
@@ -113,7 +129,7 @@ void sendFallbackChannels() {
     crsfChannels.ch1 = CRSF_CHANNEL_VALUE_MID;
     crsfChannels.ch2 = CRSF_CHANNEL_VALUE_MID;
     crsfChannels.ch3 = CRSF_CHANNEL_VALUE_MID;
-    crsfChannels.ch4 = CRSF_CHANNEL_VALUE_MID;
+    crsfChannels.ch4 = CRSF_CHANNEL_VALUE_MIN; // MIN == armed
     crsfChannels.ch5 = CRSF_CHANNEL_VALUE_MID;
     crsfChannels.ch6 = CRSF_CHANNEL_VALUE_MID;
     crsfChannels.ch7 = CRSF_CHANNEL_VALUE_MID;
@@ -126,4 +142,27 @@ void sendFallbackChannels() {
     crsfChannels.ch14 = CRSF_CHANNEL_VALUE_MID;
     crsfChannels.ch15 = CRSF_CHANNEL_VALUE_MID;
     crsfOut.writePacket(CRSF_ADDRESS_CRSF_TRANSMITTER, CRSF_FRAMETYPE_RC_CHANNELS_PACKED, &crsfChannels, sizeof(crsfChannels));
+}
+
+// Arming method
+void sendArm() {
+      crsf_channels_t crsfChannels = { 0 };
+      crsfChannels.ch0 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch1 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch2 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch3 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch4 = CRSF_CHANNEL_VALUE_MAX; // MAX... ARMING
+      crsfChannels.ch5 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch6 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch7 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch8 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch9 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch10 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch11 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch12 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch13 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch14 = CRSF_CHANNEL_VALUE_MID;
+      crsfChannels.ch15 = CRSF_CHANNEL_VALUE_MID;
+      crsfOut.writePacket(CRSF_ADDRESS_CRSF_TRANSMITTER, CRSF_FRAMETYPE_RC_CHANNELS_PACKED, &crsfChannels, sizeof(crsfChannels));
+
 }

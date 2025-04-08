@@ -1,6 +1,22 @@
 #include "HID_Wheel.h"
 #include <Arduino.h> // Pour Serial, map(), etc.
 
+void printSectionBin(uint8_t *buf, size_t len, uint8_t begin, uint8_t end) {
+    // Sécurité : vérifier les bornes
+    if (begin >= len || end > len || begin >= end) {
+        Serial.println("Paramètres invalides");
+        return;
+    }
+
+    for (size_t i = begin; i < end; i++) {
+        for (int j = 7; j >= 0; j--) {
+            Serial.print((buf[i] >> j) & 1);
+        }
+        Serial.print(" ");
+    }
+    Serial.println();
+}
+
 void printBin(uint8_t *buf, size_t len) {
     for (size_t i = 0; i < len; i++) {
         for (int j = 7; j >= 0; j--) {
@@ -10,7 +26,6 @@ void printBin(uint8_t *buf, size_t len) {
     }
     Serial.println(); // Nouvelle ligne à la fin
 }
-
 
 void printHex(uint8_t *buf, size_t len) {
     for (size_t i = 0; i < len; i++) {
@@ -25,12 +40,42 @@ void printHex(uint8_t *buf, size_t len) {
 
 void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *buf) {
   // 1) Vérifier si on est sur un device supporté
-  if (!isThrustmaster() && !isLogitech()) {
+  if (!isThrustmasterNew() && !isThrustmasterOld() && !isLogitech()) {
+      Serial.println("Volant non connecté/supporté");
       return; // On ignore
   }
 
   // Selon le modèle, on applique un parseur différent
-  if (isThrustmaster()) {
+  if (isThrustmasterNew()) {
+    // On suppose qu'il envoie au moins 64 octets, etc.
+    if (len < 64) return;
+
+    // Volant sur 12 bits (o44, o43)
+    uint16_t volant_raw = ((uint16_t)buf[44] << 8) | buf[43];
+
+    // Mapping -> 1500..250
+    volant_value = map(volant_raw, 0, 65535, 1500, 250);
+
+    // Accel. sur 8 bits (o46)
+    uint16_t accel_raw = (uint16_t)buf[46];
+    accel_value = map(accel_raw, 255, 0, 0, 1200);
+
+    // Frein sur 8 bits (o17)
+    //uint16_t frein_raw = (uint16_t)buf[17];
+    //frein_value = map(frein_raw, 0, 255, 0, 820);
+    frein_value = 0;
+
+    //raw
+    //printSectionBin(buf, len, 46, 64);
+    //Serial.print("Trustmaster New : ");
+    //Serial.print("  Volant=");
+    //Serial.print(volant_value);
+    //Serial.print("  Accel=");
+    //Serial.print(accel_value);
+    //Serial.print("  Frein=");
+    //Serial.println(frein_value);
+  }
+  else if (isThrustmasterOld()) {
     // On suppose qu'il envoie 27 octets, etc.
     if (len < 27) return;
 
@@ -55,14 +100,14 @@ void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *
     frein_value = map(frein_raw, 0, 255, 0, 820);
 
     //raw
-    //printBin(buf, len);
-    //Serial.print("Trustmaster : ");
-    //Serial.print("  Volant=");
-    //Serial.print(volant_value);
-    //Serial.print("  Accel=");
-    //Serial.print(accel_value);
-    //Serial.print("  Frein=");
-    //Serial.println(frein_raw);
+    //printSectionBin(buf, len, 43, 45);
+    Serial.print("Trustmaster Old : ");
+    Serial.print("  Volant=");
+    Serial.print(volant_value);
+    Serial.print("  Accel=");
+    Serial.print(accel_value);
+    Serial.print("  Frein=");
+    Serial.println(frein_value);
   }
   else if (isLogitech()) {
     // On suppose qu'il envoie 7 octets, etc.

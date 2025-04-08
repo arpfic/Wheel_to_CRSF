@@ -6,7 +6,8 @@
 
 // USB IDs
 #define VID_THRUSTMASTER  0x044F
-#define PID_TH_WHEEL      0xB65D
+#define PID_TH_WHEEL_OLD  0xB65D
+#define PID_TH_WHEEL_NEW  0XB681
 
 #define VID_LOGITECH      0x046D
 #define PID_LOGI_WHEEL    0xC294
@@ -23,7 +24,7 @@ public:
 
     // Vérifie si c'est "Ready" et si on reconnaît un volant supporté
     bool connected() {
-        return isReady() && (isThrustmaster() || isLogitech());
+        return isReady() && (isThrustmasterNew() || isThrustmasterOld() || isLogitech());
     }
 
     // Variables publiques où l'on stocke les mesures (exemple)
@@ -32,8 +33,12 @@ public:
     uint16_t frein_value  = 0;
 
 protected:
-    bool isThrustmaster() {
-        return (VID == VID_THRUSTMASTER && PID == PID_TH_WHEEL);
+    bool isThrustmasterNew() {
+        return (VID == VID_THRUSTMASTER && PID == PID_TH_WHEEL_NEW);
+    }
+
+    bool isThrustmasterOld() {
+        return (VID == VID_THRUSTMASTER && PID == PID_TH_WHEEL_OLD);
     }
 
     bool isLogitech() {
@@ -46,7 +51,7 @@ protected:
     
     virtual uint8_t OnInitSuccessful() override {
         // Test si on reconnaît l'ID du device
-        if (!isThrustmaster() && !isLogitech()) {
+        if (!isThrustmasterNew() && !isThrustmasterOld() && !isLogitech()) {
             return 1; // Pas un device supporté, "refus"
         }
         Serial.println("HID_Wheel init successful!");
