@@ -2,7 +2,6 @@
 #define _HID_WHEEL_H_
 
 #include <hiduniversal.h>
-#include <AlfredoCRSF.h>
 
 // USB IDs
 #define VID_THRUSTMASTER  0x044F
@@ -31,7 +30,7 @@ public:
     }
 
     // Variables publiques où l'on stocke les mesures (exemple)
-    uint16_t volant_value = CRSF_CHANNEL_VALUE_MID;
+    uint16_t volant_value = 992; // CRSF_CHANNEL_VALUE_MID
     uint16_t accel_value  = 0;
     uint16_t frein_value  = 0;
     uint16_t bouing_value  = 0;
