@@ -31,6 +31,44 @@ AlfredoCRSF crsfOut;
 // Pour limiter à 100Hz
 static unsigned long lastSend  = 0;
 static unsigned long lastPrint = 0;
+static uint8_t launched = 0;
+static uint8_t bouing = 0;
+
+// 60 02 : force globale
+// 60 08 : angle de rotation
+
+uint8_t packetForce0[64] = {
+    0x60, 0x02
+};
+
+uint8_t packetForce100[64] = {
+    0x60, 0x02, 0xff
+};
+
+uint8_t packetForce50[64] = {
+    0x60, 0x02, 0x7d
+};
+
+// Angle
+uint8_t packetAngle[64] = {
+    0x60, 0x08, 0x11, 0x5e, 0x42
+};
+
+uint8_t packetInit[64] = {
+    0x60, 0x01, 0x05
+};
+
+uint8_t packetEnd[64] = {
+    0x60, 0x01
+};
+
+uint8_t packet1[64] = {
+    0x60, 0x00, 0x01, 0xeb, 0x7a, 0x40, 0xfe, 0xff, 0x00, 0x00, 0x21, 0x00, 0x00, 0x80, 0x95, 0x00, 0xfc, 0x7f, 0xe5, 0x01, 0x03, 0x00, 0x03, 0x4f, 0xbc, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+uint8_t packet2[64] = {
+    0x60, 0x00, 0x01, 0x89, 0x01
+};
 
 void setup() {
   Serial.begin(115200);                  
@@ -78,8 +116,25 @@ void loop() {
 
   if (wheel.connected()) {
     // On limite à ~100Hz
+
+    // Configure le retour de force
+    if (launched == 0){
+      sendPacket(packetInit);
+      delay(10);
+      sendPacket(packetForce50);
+      delay(10);
+      sendPacket(packetAngle);
+      delay(10);
+      sendPacket(packetEnd);
+      launched = 1;
+    }
+
     if (millis() - lastSend >= 10) {
       lastSend = millis();
+
+      if (wheel.bouing_value == 1){
+        sendBouing();
+      }
 
       uint16_t volant_value = constrain(wheel.volant_value + OFFSET_CAR + OFFSET_VOLANT, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
       uint16_t vitesse_value = constrain(CRSF_CHANNEL_VALUE_MID + wheel.accel_value - wheel.frein_value, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
@@ -165,4 +220,28 @@ void sendArm() {
       crsfChannels.ch15 = CRSF_CHANNEL_VALUE_MID;
       crsfOut.writePacket(CRSF_ADDRESS_CRSF_TRANSMITTER, CRSF_FRAMETYPE_RC_CHANNELS_PACKED, &crsfChannels, sizeof(crsfChannels));
 
+}
+
+uint8_t sendPacket(uint8_t *packet) {
+    if (!wheel.GetAddress()) {
+        Serial.println(F("Périphérique non connecté !"));
+        return 0xFF;
+    }
+
+    uint8_t rcode = Usb.outTransfer(wheel.GetAddress(), ENDPOINT_THRUST_NEW, 64, packet);
+    if (rcode) {
+        Serial.print(F("Échec outTransfer, code=0x"));
+        Serial.println(rcode, HEX);
+    }
+    return rcode; // 0 si OK
+}
+
+void sendBouing() {
+    sendPacket(packetInit);
+    delay(10);
+    sendPacket(packet1);
+    delay(10);
+    sendPacket(packet2);
+    delay(500);
+    sendPacket(packetEnd);
 }

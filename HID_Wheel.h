@@ -7,10 +7,13 @@
 // USB IDs
 #define VID_THRUSTMASTER  0x044F
 #define PID_TH_WHEEL_OLD  0xB65D
-#define PID_TH_WHEEL_NEW  0XB681
+#define PID_TH_WHEEL_NEW  0Xb66d
 
 #define VID_LOGITECH      0x046D
 #define PID_LOGI_WHEEL    0xC294
+
+// lsusb -vd
+#define ENDPOINT_THRUST_NEW 3
 
 /**
  * Classe générique "HID_Wheel"
@@ -31,6 +34,7 @@ public:
     uint16_t volant_value = CRSF_CHANNEL_VALUE_MID;
     uint16_t accel_value  = 0;
     uint16_t frein_value  = 0;
+    uint16_t bouing_value  = 0;
 
 protected:
     bool isThrustmasterNew() {

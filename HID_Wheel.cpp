@@ -50,9 +50,8 @@ void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *
     // On suppose qu'il envoie au moins 64 octets, etc.
     if (len < 64) return;
 
-    // Volant sur 12 bits (o44, o43)
+    // Volant sur 16 bits (o44 MSB, o43 LSB)
     uint16_t volant_raw = ((uint16_t)buf[44] << 8) | buf[43];
-
     // Mapping -> 1500..250
     volant_value = map(volant_raw, 0, 65535, 1500, 250);
 
@@ -60,13 +59,19 @@ void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *
     uint16_t accel_raw = (uint16_t)buf[46];
     accel_value = map(accel_raw, 255, 0, 0, 1200);
 
-    // Frein sur 8 bits (o17)
-    //uint16_t frein_raw = (uint16_t)buf[17];
-    //frein_value = map(frein_raw, 0, 255, 0, 820);
-    frein_value = 0;
+    // Volant sur 16 bits (o48 MSB, o47 LSB)
+    uint16_t frein_raw = ((uint16_t)buf[48] << 8) | buf[47];
+    frein_value = map(frein_raw, 65535, 0, 0, 820);
+
+    // Bouing !
+    if (buf[9] == 0xFF) {
+      bouing_value = 1;
+    } else {
+      bouing_value = 0;
+    }
 
     //raw
-    //printSectionBin(buf, len, 46, 64);
+    //printSectionBin(buf, len, 46, 50);
     //Serial.print("Trustmaster New : ");
     //Serial.print("  Volant=");
     //Serial.print(volant_value);
