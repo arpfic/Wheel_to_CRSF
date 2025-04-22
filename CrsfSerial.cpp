@@ -256,7 +256,7 @@ void CrsfSerial::queuePacket(uint8_t type, const void *payload, uint8_t len)
         return;
 
     uint8_t buf[CRSF_MAX_PACKET_SIZE];
-    buf[0] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+    buf[0] = CRSF_SYNC_BYTE;
     buf[1] = len + 2; // type + payload + crc
     buf[2] = type;
     memcpy(&buf[3], payload, len);

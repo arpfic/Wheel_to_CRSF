@@ -71,6 +71,18 @@ uint8_t packet2[64] = {
     0x60, 0x00, 0x01, 0x89, 0x01
 };
 
+void sendNeutralBurst(uint16_t duration_ms = 200)
+{
+    uint32_t t0 = millis();
+    while (millis() - t0 < duration_ms) {
+        for (uint8_t ch = 1; ch <= CRSF_NUM_CHANNELS; ++ch)
+            crsf.setChannel(ch, 1500);      // 1500 µs neutre
+
+        crsf.queuePacketChannels();         // 1 paquet
+        delay(4);                           // 250 Hz → 4 ms
+    }
+}
+
 /* ---------- Callbacks (frames reçues) --------------------------- */
 void onLinkStats(crsfLinkStatistics_t *ls)
 {
@@ -141,11 +153,10 @@ void setup() {
   /* Callbacks downlink ----------------------------------------- */
   crsf.onPacketLinkStatistics = onLinkStats;
 
-  const uint8_t cmd_bind[3] = {0x01, 0x00, 0x00};      // sub‑cmd Bind
-  crsf.queuePacket(CRSF_FRAMETYPE_COMMAND,              // 0x32
-                   cmd_bind, sizeof(cmd_bind));
+  Serial.println("Sending neutral bursts...");
+  sendNeutralBurst(2000);
   delay(200);   // laisse le temps au module
- 
+   
  }
 
 void loop() {
