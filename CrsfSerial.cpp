@@ -248,7 +248,7 @@ void CrsfSerial::write(const uint8_t *buf, size_t len)
     _port.write(buf, len);
 }
 
-void CrsfSerial::queuePacket(uint8_t type, const void *payload, uint8_t len)
+void CrsfSerial::queuePacket(uint8_t dest, uint8_t type, const void *payload, uint8_t len)
 {
     if (getPassthroughMode())
         return;
@@ -256,7 +256,7 @@ void CrsfSerial::queuePacket(uint8_t type, const void *payload, uint8_t len)
         return;
 
     uint8_t buf[CRSF_MAX_PACKET_SIZE];
-    buf[0] = CRSF_SYNC_BYTE;
+    buf[0] = dest;
     buf[1] = len + 2; // type + payload + crc
     buf[2] = type;
     memcpy(&buf[3], payload, len);
@@ -296,7 +296,7 @@ void CrsfSerial::queuePacketChannels()
         }
     }
 
-    queuePacket(CRSF_FRAMETYPE_RC_CHANNELS_PACKED, packedChannels, sizeof(packedChannels));
+    queuePacket(CRSF_ADDRESS_CRSF_TRANSMITTER, CRSF_FRAMETYPE_RC_CHANNELS_PACKED, packedChannels, sizeof(packedChannels));
 }
 
 /**

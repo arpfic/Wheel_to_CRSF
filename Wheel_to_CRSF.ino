@@ -1,231 +1,215 @@
-#include "HID_Wheel.h"
-#include <usbhub.h>
-#include <SPI.h>
-#include "CrsfSerial.h"
+/********************************************************************
+ *  ESP32  ➜  Module ELRS (CRSF)
+ *  - TX GPIO4, RX GPIO2 (inversés, half‑duplex)
+ *  - Envoie 16 voies à 1500 µs toutes les 4 ms
+ *  - Affiche tout paquet downlink reçu
+ ********************************************************************/
+#include <Arduino.h>
 #include <HardwareSerial.h>
+#include <crc8.h>
+#include "CrsfSerial.h"
 
-#define PIN_RX_OUT 2
-#define PIN_TX_OUT 4
-constexpr int        LED_PIN      = 13;       // LED de diagnostique
-constexpr uint32_t   CRSF_BAUD    = 420000;   // 250 Hz ELRS
+/* ----------- Broches & constantes --------------------------------*/
+#define PIN_RX_OUT         15
+#define PIN_TX_OUT         4
+constexpr uint32_t CRSF_BAUD        = 420000;   // 250 Hz ELRS
+constexpr uint32_t SEND_INTERVAL_US = 4000;     // 4 ms → 250 Hz
 
-#define CRSF_VOLANT_MIN 200
-#define CRSF_VOLANT_MAX 1500
+/* ----------- Objets globaux --------------------------------------*/
+HardwareSerial   CRSFPort(1);                   // UART1
+CrsfSerial       crsf(CRSFPort, CRSF_BAUD);
+Crc8             crc8(0xD5);                    // générateur CRC CRSF
 
-#define CRSF_VITESSE_MIN 700
-#define CRSF_VITESSE_MAX 1200
-
-#define OFFSET_VOLANT 73
-#define OFFSET_CAR 0
-#define OFFSET_CAR_1_18 158
-
-// Objets pour le shield USB
-USB          Usb;
-USBHub       Hub(&Usb);
-HID_Wheel    wheel(&Usb);
-
-// Objets Alfredo
-HardwareSerial CRSFUart(1);                   // Serial1 (UART1)
-CrsfSerial crsf(CRSFUart, CRSF_BAUD);
-
-// Pour limiter à 250Hz
-uint32_t lastTx = 0;
-static unsigned long lastSend  = 0;
-static unsigned long lastPrint = 0;
-static uint8_t launched = 0;
-static uint8_t bouing = 0;
-
-// 60 02 : force globale
-// 60 08 : angle de rotation
-
-uint8_t packetForce0[64] = {
-    0x60, 0x02
-};
-
-uint8_t packetForce100[64] = {
-    0x60, 0x02, 0xff
-};
-
-uint8_t packetForce50[64] = {
-    0x60, 0x02, 0x7d
-};
-
-// Angle
-uint8_t packetAngle[64] = {
-    0x60, 0x08, 0x11, 0x5e, 0x42
-};
-
-uint8_t packetInit[64] = {
-    0x60, 0x01, 0x05
-};
-
-uint8_t packetEnd[64] = {
-    0x60, 0x01
-};
-
-uint8_t packet1[64] = {
-    0x60, 0x00, 0x01, 0xeb, 0x7a, 0x40, 0xfe, 0xff, 0x00, 0x00, 0x21, 0x00, 0x00, 0x80, 0x95, 0x00, 0xfc, 0x7f, 0xe5, 0x01, 0x03, 0x00, 0x03, 0x4f, 0xbc, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-
-uint8_t packet2[64] = {
-    0x60, 0x00, 0x01, 0x89, 0x01
-};
-
-void sendNeutralBurst(uint16_t duration_ms = 200)
+/* =================================================================
+ *                 Utilitaires – construction de trames
+ * =================================================================*/
+void sendNeutralChannels()
 {
-    uint32_t t0 = millis();
-    while (millis() - t0 < duration_ms) {
-        for (uint8_t ch = 1; ch <= CRSF_NUM_CHANNELS; ++ch)
-            crsf.setChannel(ch, 1500);      // 1500 µs neutre
+    /* ---- 1. Payload : 22 octets, 16 voies x 11 bits ------------ */
+    constexpr uint16_t usMid   = 1500;
+    constexpr uint16_t crsfMid = US_to_CRSF(usMid);  // ≈ 992
 
-        crsf.queuePacketChannels();         // 1 paquet
-        delay(4);                           // 250 Hz → 4 ms
+    uint8_t payload[CRSF_FRAME_RC_CHANNELS_PAYLOAD_SIZE];   // 22 o
+    uint8_t *p = payload;
+    uint32_t scratch = 0;  uint8_t bits = 0;
+
+    for (uint8_t ch = 0; ch < CRSF_NUM_CHANNELS; ++ch) {
+        scratch |= uint32_t(crsfMid) << bits;
+        bits += CRSF_BITS_PER_CHANNEL;            // +11 bits
+        while (bits >= 8) {                       // vide par octet
+            *p++ = scratch & 0xFF;
+            scratch >>= 8;
+            bits -= 8;
+        }
     }
+
+    /* ---- 2. En‑tête complet ------------------------------------ */
+    uint8_t frame[1 + 1 + 1 + sizeof(payload) + 1];         // 26 o
+    frame[0] = CRSF_ADDRESS_CRSF_TRANSMITTER;               // 0xEE
+    frame[1] = sizeof(payload) + 2;                         // len+crc
+    frame[2] = CRSF_FRAMETYPE_RC_CHANNELS_PACKED;           // 0x16
+    memcpy(&frame[3], payload, sizeof(payload));
+    frame[sizeof(frame) - 1] = crc8.calc(&frame[2],
+                                         sizeof(payload) + 1);
+
+    /* ---- 3. Send ------------------------------------------------ */
+    CRSFPort.write(frame, sizeof(frame));
 }
 
-/* ---------- Callbacks (frames reçues) --------------------------- */
-void onLinkStats(crsfLinkStatistics_t *ls)
-{
-    digitalWrite(LED_PIN, !digitalRead(LED_PIN));     // blink
-
-    /*  Prend le meilleur RSSI des deux antennes si présent          */
-    int8_t rssi = ls->uplink_RSSI_1;
-    if (ls->uplink_RSSI_2)                 // vaut 0 si la seconde n’existe pas
-        rssi = max(rssi, ls->uplink_RSSI_2);
-
-    Serial.printf("[Link] LQ:%u%%  RSSI:%d  SNR:%d\n",
-                  ls->uplink_Link_quality,
-                  rssi,
-                  ls->uplink_SNR);
-}
-
-struct __attribute__((packed)) crsf_device_info_t {
-    uint8_t serial_number[4]   {0x12,0x34,0x56,0x78};
-    uint8_t hardware_version   {1};
-    uint8_t software_major     {0};
-    uint8_t software_minor     {1};
-    uint8_t reserved1          {0};
-    uint8_t device_options     {0};
-    uint8_t empty              {0};
+/* =================================================================
+ *                 Gestion du DEVICE_PING  ->  DEVICE_INFO
+ * =================================================================*/
+#pragma pack(push,1)
+struct crsf_device_info_t {
+    uint8_t serial[4]    {0x12, 0x34, 0x56, 0x78};
+    uint8_t hw_version   {1};
+    uint8_t sw_major     {0};
+    uint8_t sw_minor     {1};
+    uint8_t reserved1    {0};
+    uint8_t device_opts  {0};
+    uint8_t empty        {0};
 };
+#pragma pack(pop)
+
+void sendDeviceInfo()
+{
+    crsf_device_info_t info;
+    crsf.queuePacket(CRSF_ADDRESS_CRSF_TRANSMITTER,
+                     CRSF_FRAMETYPE_DEVICE_INFO,
+                     &info, sizeof(info));
+}
 
 void onOobByte(uint8_t b)
 {
-    static uint8_t buf[6];
+    static uint8_t buf[64];
     static uint8_t pos = 0;
     buf[pos++] = b;
-    if (pos < 6) return;
 
-    if (buf[0] == CRSF_ADDRESS_CRSF_TRANSMITTER && buf[2] == CRSF_FRAMETYPE_DEVICE_PING) {
-        crsf_device_info_t info;
-        crsf.queuePacket(CRSF_FRAMETYPE_DEVICE_INFO,
-                         &info, sizeof(info));
+    /* un paquet complet ? [addr] [len] ... [crc] */
+    if (pos >= 2 && pos >= buf[1] + 2) {
+
+        /* 1)  DEVICE_PING  ->  DEVICE_INFO  */
+        if (buf[0] == CRSF_ADDRESS_CRSF_TRANSMITTER &&
+            buf[2] == CRSF_FRAMETYPE_DEVICE_PING) {         // 0x28
+            sendDeviceInfo();                               // répond 0x29
+        }
+
+        pos = 0;                                            // reset
     }
-    pos = 0;
+    if (pos >= sizeof(buf)) pos = 0;
+
+    /* Affiche quand même pour debug                    */
+    dumpPacket(buf, pos);
 }
 
-void setup() {
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-  Serial.begin(115200);                  
-  while (!Serial) {
-    // Attendre l'USB série
-  }
-  Serial.println("ESP Started");
-  // Initialiser le shield USB
-  if (Usb.Init() == -1) {
-    Serial.println("OSC did not start.");
-  }
-  Serial.println("Waiting 5s for Radiomaster...");
-  delay(5000);
 
-  /* UART1 : inversion logique + half‑duplex -------------------- */
-  CRSFUart.begin(CRSF_BAUD,
-                 SERIAL_8N1,
-                 PIN_RX_OUT,           // RX
-                 PIN_TX_OUT,           // TX
-                 true);                // invert
-  crsf.onOobData = onOobByte;   // chaque octet « hors CRSF » arrive ici
+/* =================================================================
+ *                 Callbacks télémétrie (affichage console)
+ * =================================================================*/
+void onLinkStats(crsfLinkStatistics_t *ls)
+{
+    Serial.printf("[LINK] LQ:%u  RSSI1:%d  RSSI2:%d  SNR:%d  RF:%u\n",
+                  ls->uplink_Link_quality,
+                  ls->uplink_RSSI_1, ls->uplink_RSSI_2,
+                  ls->uplink_SNR,
+                  ls->rf_Mode);
+}
 
-  Serial.println("Serial  CRSF start");
-  Serial.println(CRSF_BAUDRATE);
+void onGps(crsf_sensor_gps_t *gps)
+{
+    Serial.printf("[GPS] %.7f , %.7f  alt:%d  sats:%u\n",
+                  gps->latitude  / 1e7,
+                  gps->longitude / 1e7,
+                  gps->altitude,
+                  gps->satellites);
+}
 
-  /* Callbacks downlink ----------------------------------------- */
-  crsf.onPacketLinkStatistics = onLinkStats;
+/* =================================================================
+ *                               SETUP
+ * =================================================================*/
+void setup()
+{
+    Serial.begin(115200);
+    delay(100);
 
-  Serial.println("Sending neutral bursts...");
-  sendNeutralBurst(2000);
-  delay(200);   // laisse le temps au module
-   
- }
+    Serial.println("Start");
 
-void loop() {
-  // Gère la pile USB, déclenche Parse() quand un rapport arrive
-  Usb.Task();
-  crsf.loop();                            // gère les paquets reçus
+    /* 1. UART inversé half‑duplex */
+    CRSFPort.begin(CRSF_BAUD, SERIAL_8N1,
+                   PIN_RX_OUT, PIN_TX_OUT,
+                   true);                            // inversion
+    //CRSFPort.setMode(UART_MODE_RS485_HALF_DUPLEX); // truc tout nul
     
-  if (wheel.connected()) {
-    // On limite à ~100Hz
+    /* 2. Init lib + callbacks */
+    crsf.begin();
+    crsf.onOobData               = onOobByte;
+    crsf.onPacketLinkStatistics  = onLinkStats;
+    crsf.onPacketGps             = onGps;
 
-    // Configure le retour de force
-    if (launched == 0){
-      sendPacket(packetInit);
-      delay(10);
-      sendPacket(packetForce50);
-      delay(10);
-      sendPacket(packetAngle);
-      delay(10);
-      sendPacket(packetEnd);
-      launched = 1;
+    /* 3. Rafale « neutral » 200 ms pour sortir le RX du failsafe */
+    uint32_t t0 = millis();
+    while (millis() - t0 < 200) {   // ≃ 50 paquets à 250 Hz
+        sendNeutralChannels();
+        delayMicroseconds(SEND_INTERVAL_US);
     }
-
-    if (millis() - lastTx >= 4) {           // ≈ 250 Hz
-      lastSend = millis();
-
-      if (wheel.bouing_value == 1){
-        sendBouing();
-      }
-
-      uint16_t volant_value = constrain(wheel.volant_value + OFFSET_CAR + OFFSET_VOLANT, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
-      uint16_t vitesse_value = constrain(CRSF_CHANNEL_VALUE_MID + wheel.accel_value - wheel.frein_value, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
-
-    /* Envoyer les 16 canaux toutes les 4 ms ------------------- */
-      crsf.setChannel(1, volant_value);   // CH1 = volant
-      for (uint8_t ch = 2; ch <= 16; ++ch)
-          crsf.setChannel(ch, 1500);      // neutre
-
-      crsf.queuePacketChannels();         // push vers module
-      lastTx = millis();
-      
-      if (millis() - lastPrint >= 400) {
-        lastPrint = millis();
-        Serial.print("crsfChannels.ch0 = ");
-        Serial.println(volant_value);
-      }
-    }
-  }
 }
 
-uint8_t sendPacket(uint8_t *packet) {
-    if (!wheel.GetAddress()) {
-        Serial.println(F("Périphérique non connecté !"));
-        return 0xFF;
-    }
+/* =================================================================
+ *                               LOOP
+ * =================================================================*/
+void loop()
+{
+    static uint32_t lastSend = 0;
 
-    uint8_t rcode = Usb.outTransfer(wheel.GetAddress(), ENDPOINT_THRUST_NEW, 64, packet);
-    if (rcode) {
-        Serial.print(F("Échec outTransfer, code=0x"));
-        Serial.println(rcode, HEX);
+    crsf.loop();                                  // parse Rx
+
+    if (micros() - lastSend >= SEND_INTERVAL_US) {
+        sendSteerChannels();          // CH1 alterne gauche/droite
+        lastSend = micros();
     }
-    return rcode; // 0 si OK
 }
 
-void sendBouing() {
-    sendPacket(packetInit);
-    delay(10);
-    sendPacket(packet1);
-    delay(10);
-    sendPacket(packet2);
-    delay(500);
-    sendPacket(packetEnd);
+void sendSteerChannels()
+{
+    static bool left = false;
+    static uint32_t lastToggle = 0;
+
+    // alterne toutes les secondes
+    if (millis() - lastToggle >= 10000) {
+        left = !left;
+        lastToggle = millis();
+    }
+    uint16_t usCH = left ? 988 : 2012;     // gauche / droite
+
+    /* 1.  mets tous les canaux à 1500 µs */
+    for (uint8_t ch = 1; ch <= CRSF_NUM_CHANNELS; ++ch)
+        crsf.setChannel(ch, 1500);
+
+    /* 2.  channel 2 (index 1) = direction */
+    crsf.setChannel(2, usCH);              // <- C'EST ICI !
+
+    /* 3.  empaquette et envoie */
+    crsf.queuePacketChannels();
+}
+
+/* ---------- Callback générique : hexdump de TOUT paquet --------- */
+void dumpPacket(const uint8_t *buf, uint8_t len)
+{
+    Serial.print("RX: ");
+    for (uint8_t i = 0; i < len; ++i) {
+        if (buf[i] < 0x10) Serial.print('0');
+        Serial.print(buf[i], HEX);
+        Serial.write(' ');
+    }
+    Serial.println();
+}
+
+// --- utilitaire : libère TX pendant 2 ms --------------------------
+static inline void triStateTxLine()
+{
+    CRSFPort.flush();                  // attend fin d'envoi
+    pinMode(PIN_TX_OUT, INPUT_PULLUP); // ligne libre
+    delayMicroseconds(200);           // laisse le module parler
+    pinMode(PIN_TX_OUT, OUTPUT);
+    digitalWrite(PIN_TX_OUT, HIGH);   // niveau repos (inversé)
 }
