@@ -16,8 +16,12 @@
  */
  
 #include <Arduino.h>
+// Elrs
 #include "crsf_protocol.h"
 #include "CrsfSerial.h"
+// Volant
+#include "HID_Wheel.h"
+#include <usbhub.h>
 
 /* ----------------- Broches & constantes ------------------------- */
 constexpr uint8_t  PIN_RX = 15;          // entrée
@@ -25,9 +29,66 @@ constexpr uint8_t  PIN_TX = 4;           // sortie via 1 kΩ
 constexpr uint32_t CRSF_BAUD   = 420000; // 250 Hz
 constexpr uint32_t PERIOD_US   = 4000;   // 4 ms
 
+#define CRSF_CHAN_MIN 172
+#define CRSF_CHAN_MAX 1792
+
+#define CRSF_VOLANT_MIN 200
+#define CRSF_VOLANT_MAX 1500
+
+#define CRSF_VITESSE_MIN 700
+#define CRSF_VITESSE_MAX 1200
+
+#define OFFSET_VOLANT 73
+#define OFFSET_CAR 0
+#define OFFSET_CAR_1_18 158
+
 /* ----------------- Objets -------------------------------------- */
 HardwareSerial uart(1);
 CrsfSerial     crsf(uart, CRSF_BAUD);
+
+// Shield USB et Volant
+USB          Usb;
+USBHub       Hub(&Usb);
+HID_Wheel    wheel(&Usb);
+
+static unsigned long lastSend  = 0;
+static unsigned long lastPrint = 0;
+static uint8_t launched = 0;
+static uint8_t bouing = 0;
+
+/* ----------------- Paquets pour le volant ---------------------- */
+uint8_t packetForce0[64] = {
+    0x60, 0x02
+};
+
+uint8_t packetForce100[64] = {
+    0x60, 0x02, 0xff
+};
+
+uint8_t packetForce50[64] = {
+    0x60, 0x02, 0x7d
+};
+
+// Angle
+uint8_t packetAngle[64] = {
+    0x60, 0x08, 0x11, 0x5e, 0x42
+};
+
+uint8_t packetInit[64] = {
+    0x60, 0x01, 0x05
+};
+
+uint8_t packetEnd[64] = {
+    0x60, 0x01
+};
+
+uint8_t packet1[64] = {
+    0x60, 0x00, 0x01, 0xeb, 0x7a, 0x40, 0xfe, 0xff, 0x00, 0x00, 0x21, 0x00, 0x00, 0x80, 0x95, 0x00, 0xfc, 0x7f, 0xe5, 0x01, 0x03, 0x00, 0x03, 0x4f, 0xbc, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+uint8_t packet2[64] = {
+    0x60, 0x00, 0x01, 0x89, 0x01
+};
 
 /* ----------------- Handshake PING → INFO ----------------------- */
 // Vérifier si on a l'équivalent dans Alfredo
@@ -85,6 +146,33 @@ void onEsc (crsf_sensor_esc_t *e)
     float rpm = be32toh(e->erpm) * 0.6f;      // eRPM/100 → RPM
     Serial.printf("[ESC] %.0f RPM  %d °C\n", rpm, e->temperature);
 }
+
+
+// Send to wheel
+uint8_t sendPacket(uint8_t *packet) {
+    if (!wheel.GetAddress()) {
+        Serial.println(F("Périphérique non connecté !"));
+        return 0xFF;
+    }
+
+    uint8_t rcode = Usb.outTransfer(wheel.GetAddress(), ENDPOINT_THRUST_NEW, 64, packet);
+    if (rcode) {
+        Serial.print(F("Échec outTransfer, code=0x"));
+        Serial.println(rcode, HEX);
+    }
+    return rcode; // 0 si OK
+}
+
+void sendBouing() {
+    sendPacket(packetInit);
+    delay(10);
+    sendPacket(packet1);
+    delay(10);
+    sendPacket(packet2);
+    delay(500);
+    sendPacket(packetEnd);
+}
+
 /* ----------------- SETUP --------------------------------------- */
 void setup()
 {
@@ -106,23 +194,54 @@ void setup()
         crsf.queuePacketChannels();
         delayMicroseconds(PERIOD_US);
     }
+
+    // Initialiser le shield USB
+    if (Usb.Init() == -1) {
+      Serial.println("USB Shield did not start.");
+    }
+
 }
 
 /* ----------------- LOOP ---------------------------------------- */
 void loop()
 {
+
+    // Gère la pile USB, déclenche Parse() quand un rapport arrive
+    Usb.Task();
+
+    // gestion du crsf
     static uint32_t tLast = 0;
     crsf.loop();                                  // lit la télémétrie
 
-    if (micros() - tLast >= PERIOD_US) {
-        static bool left = false;
-        static uint32_t tToggle = 0;
-        if (millis() - tToggle > 10000) { left = !left; tToggle = millis(); }
-
-        for (uint8_t ch=1; ch<=CRSF_NUM_CHANNELS; ++ch) crsf.setChannel(ch,1500);
-        crsf.setChannel(2, left ? 988 : 2012);    // direction test
-        crsf.queuePacketChannels();
-
-        tLast = micros();
+  if (wheel.connected()) {
+    // Configure le retour de force
+    if (launched == 0){
+      sendPacket(packetInit);
+      delay(10);
+      sendPacket(packetForce50);
+      delay(10);
+      sendPacket(packetAngle);
+      delay(10);
+      sendPacket(packetEnd);
+      launched = 1;
     }
+
+    if (micros() - tLast >= PERIOD_US) {
+
+      if (wheel.bouing_value == 1){
+        sendBouing();
+      }
+
+      uint16_t volant_value = constrain(wheel.volant_value + OFFSET_CAR + OFFSET_VOLANT, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
+      uint16_t vitesse_value = constrain(CRSF_CHANNEL_VALUE_MID + wheel.accel_value - wheel.frein_value, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
+
+      // Rempli le paquet
+      for (uint8_t ch=2; ch<=CRSF_NUM_CHANNELS; ++ch) crsf.setChannel(ch, CRSF_CHANNEL_VALUE_MID);
+      crsf.setChannel(0, vitesse_value);
+      crsf.setChannel(1, volant_value);
+      crsf.queuePacketChannels();
+
+      tLast = micros();
+    }
+  }
 }
