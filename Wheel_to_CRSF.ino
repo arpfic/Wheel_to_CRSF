@@ -24,7 +24,7 @@
 #include <usbhub.h>
 
 /* ----------------- Broches & constantes ------------------------- */
-constexpr uint8_t  PIN_RX = 15;          // entrée
+constexpr uint8_t  PIN_RX = 2;           // entrée
 constexpr uint8_t  PIN_TX = 4;           // sortie via 1 kΩ
 constexpr uint32_t CRSF_BAUD   = 420000; // 250 Hz
 constexpr uint32_t PERIOD_US   = 4000;   // 4 ms
