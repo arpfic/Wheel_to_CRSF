@@ -147,6 +147,12 @@ void CrsfSerial::processPacketIn(uint8_t len)
     case CRSF_FRAMETYPE_LINK_STATISTICS:
         packetLinkStatistics(hdr);
         break;
+    case CRSF_FRAMETYPE_BATTERY_SENSOR:
+        packetBattery(hdr);
+        break;
+    case CRSF_FRAMETYPE_ESC_SENSOR:
+        packetEsc(hdr);
+        break;
     }
 }
 
@@ -236,6 +242,18 @@ void CrsfSerial::packetGps(const crsf_header_t *p)
 
     if (onPacketGps)
         onPacketGps(&_gpsSensor);
+}
+
+void CrsfSerial::packetBattery(const crsf_header_t *p)
+{
+    memcpy(&_batterySensor, p->data, sizeof(_batterySensor));
+    if (onPacketBattery) onPacketBattery(&_batterySensor);
+}
+
+void CrsfSerial::packetEsc(const crsf_header_t *p)
+{
+    memcpy(&_escSensor, p->data, sizeof(_escSensor));
+    if (onPacketEsc) onPacketEsc(&_escSensor);
 }
 
 void CrsfSerial::write(uint8_t b)

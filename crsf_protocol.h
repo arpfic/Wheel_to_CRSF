@@ -181,4 +181,16 @@ static inline uint32_t be32toh(uint32_t val)
     return __builtin_bswap32(val);
 #endif
 }
+
+/* ===== ESC SENSOR (type 0x0C) =================================== */
+#define CRSF_FRAMETYPE_ESC_SENSOR              0x0C
+#define CRSF_FRAME_ESC_SENSOR_PAYLOAD_SIZE     10
+
+typedef struct __attribute__((packed)) {
+    uint32_t erpm;        // eRPM / 100, big‑endian
+    uint16_t voltage;     // 0.01 V, big‑endian
+    uint16_t current;     // 0.01 A, big‑endian
+    int8_t   temperature;
+    uint8_t  flags;
+} crsf_sensor_esc_t;
 #endif
