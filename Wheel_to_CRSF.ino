@@ -162,14 +162,12 @@ void onEsc (crsf_sensor_esc_t *e)
 
 void onFlight(crsf_flight_mode_t *fm)
 {
-    char txt[16];                          // buffer local
-    memcpy(txt, fm->mode, 15);
-    txt[15] = '\0';                        // termine la chaîne
-
-    bool armed = strcmp(txt, "DISARMED") != 0;   // ≠ DISARMED → armé
-    Serial.printf("[MODE] %-9s  %s\n",
-                  txt,
-                  armed ? "ARMED" : "DISARMED");
+    char mode[16];
+    memcpy(mode, fm->mode, 15);
+    mode[15] = '\0';
+    size_t n = strnlen(mode, 15);
+    while (n && mode[n-1] == ' ') mode[--n] = '\0';   // trim trailing blanks
+    Serial.printf("[MODE] %s\n", mode);
 }
 
 // Send to wheel
@@ -254,8 +252,8 @@ void loop()
 //        sendBouing();
 //      }
 
+      // Arming
       if (armed == 0){
-        // Arming
         Serial.println("Arming. please wait");
         sendArmCH5(1000, 5000);
         Serial.println("Arming. Sending 2000");
@@ -266,7 +264,6 @@ void loop()
         sendArmCH5(2000, 1000);
         Serial.println("Arming. Sending 1000");
         sendArmCH5(1000, 1000);
-
         armed = 1;
       }
 
