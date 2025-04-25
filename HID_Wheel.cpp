@@ -53,15 +53,15 @@ void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *
     // Volant sur 16 bits (o44 MSB, o43 LSB)
     uint16_t volant_raw = ((uint16_t)buf[44] << 8) | buf[43];
     // Mapping -> 1500..250
-    volant_value = map(volant_raw, 0, 65535, 1500, 250);
+    volant_value = map(volant_raw, 0, 65535, 2000, 1000);
 
     // Accel. sur 8 bits (o46)
     uint16_t accel_raw = (uint16_t)buf[46];
-    accel_value = map(accel_raw, 255, 0, 0, 1200);
+    accel_value = map(accel_raw, 255, 0, 0, 500);
 
     // Volant sur 16 bits (o48 MSB, o47 LSB)
     uint16_t frein_raw = ((uint16_t)buf[48] << 8) | buf[47];
-    frein_value = map(frein_raw, 65535, 0, 0, 820);
+    frein_value = map(frein_raw, 65535, 0, 0, 500);
 
     // Bouing !
     if (buf[9] == 0xFF) {

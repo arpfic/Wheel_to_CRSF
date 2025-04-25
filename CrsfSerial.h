@@ -42,6 +42,7 @@ public:
     void (*onPacketGps)(crsf_sensor_gps_t *gpsSensor);
     void (*onPacketBattery)(crsf_sensor_battery_t *bat);
     void (*onPacketEsc)(crsf_sensor_esc_t *esc);
+    void (*onPacketFlightMode)(crsf_flight_mode_t *fm);
 
 private:
     HardwareSerial &_port;
@@ -52,6 +53,7 @@ private:
     crsf_sensor_gps_t _gpsSensor;
     crsf_sensor_battery_t _batterySensor;
     crsf_sensor_esc_t _escSensor;
+    crsf_flight_mode_t _flightMode;
     uint32_t _baud;
     uint32_t _lastReceive;
     uint32_t _lastChannelsPacket;
@@ -72,4 +74,5 @@ private:
     void packetGps(const crsf_header_t *p);
     void packetBattery(const crsf_header_t *p);
     void packetEsc(const crsf_header_t *p);
+    void packetFlightMode(const crsf_header_t *p);
 };

@@ -193,4 +193,12 @@ typedef struct __attribute__((packed)) {
     int8_t   temperature;
     uint8_t  flags;
 } crsf_sensor_esc_t;
+
+#define CRSF_FRAMETYPE_FLIGHT_MODE       0x21
+#define CRSF_FRAME_FLIGHT_MODE_PAYLOAD_SIZE 15   // iNav/BF
+
+typedef struct __attribute__((packed)) {
+    char mode[15];        // ASCII, NUL-terminated
+} crsf_flight_mode_t;
+
 #endif

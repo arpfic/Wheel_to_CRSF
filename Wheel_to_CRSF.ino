@@ -29,16 +29,11 @@ constexpr uint8_t  PIN_TX = 4;           // sortie via 1 kΩ
 constexpr uint32_t CRSF_BAUD   = 420000; // 250 Hz
 constexpr uint32_t PERIOD_US   = 4000;   // 4 ms
 
-#define CRSF_CHAN_MIN 172
-#define CRSF_CHAN_MAX 1792
+#define CRSF_CHAN_MIN 1000
+#define CRSF_CHAN_MAX 2000
+#define CRSF_CHAN_MID 1500
 
-#define CRSF_VOLANT_MIN 200
-#define CRSF_VOLANT_MAX 1500
-
-#define CRSF_VITESSE_MIN 700
-#define CRSF_VITESSE_MAX 1200
-
-#define OFFSET_VOLANT 73
+#define OFFSET_VOLANT 0
 #define OFFSET_CAR 0
 #define OFFSET_CAR_1_18 158
 
@@ -55,6 +50,7 @@ static unsigned long lastSend  = 0;
 static unsigned long lastPrint = 0;
 static uint8_t launched = 0;
 static uint8_t bouing = 0;
+static uint8_t armed = 0;
 
 /* ----------------- Paquets pour le volant ---------------------- */
 uint8_t packetForce0[64] = {
@@ -91,7 +87,7 @@ uint8_t packet2[64] = {
 };
 
 /* ----------------- Handshake PING → INFO ----------------------- */
-// Vérifier si on a l'équivalent dans Alfredo
+// TODO : Vérifier si on a l'équivalent dans Alfredo
 void onOob(uint8_t b)               // appelé pour chaque octet « hors CRSF »
 {
     static uint8_t buf[6];          // 6 octets = entête complet d’un ping
@@ -115,6 +111,23 @@ void onOob(uint8_t b)               // appelé pour chaque octet « hors CRSF »
         pos = 0;                      // on réarme le mini-parser
     }
     if (pos >= sizeof(buf)) pos = 0;  // sécurité débordement
+}
+
+// Arming sur le canal 5
+void sendArmCH5(uint16_t value, uint32_t duree_ms)
+{
+    const uint32_t start = millis();
+    while (millis() - start < duree_ms)
+    {
+        /* Prépare les 16 canaux à MID*/
+        for (uint8_t ch = 1; ch <= CRSF_NUM_CHANNELS; ++ch)
+            crsf.setChannel(ch, CRSF_CHAN_MID);
+        crsf.setChannel(5, value);   // CH5 à la valeur voulue
+        /* Envoie le paquet */
+        crsf.queuePacketChannels();
+        /* Respecte la cadence (250 Hz) */
+        delayMicroseconds(PERIOD_US);   // PERIOD_US = 4000 µs
+    }
 }
 
 /* ----------------- Callbacks telemetry ------------------------ */
@@ -147,6 +160,17 @@ void onEsc (crsf_sensor_esc_t *e)
     Serial.printf("[ESC] %.0f RPM  %d °C\n", rpm, e->temperature);
 }
 
+void onFlight(crsf_flight_mode_t *fm)
+{
+    char txt[16];                          // buffer local
+    memcpy(txt, fm->mode, 15);
+    txt[15] = '\0';                        // termine la chaîne
+
+    bool armed = strcmp(txt, "DISARMED") != 0;   // ≠ DISARMED → armé
+    Serial.printf("[MODE] %-9s  %s\n",
+                  txt,
+                  armed ? "ARMED" : "DISARMED");
+}
 
 // Send to wheel
 uint8_t sendPacket(uint8_t *packet) {
@@ -186,20 +210,20 @@ void setup()
     crsf.onPacketGps            = onGps;
     crsf.onPacketBattery        = onBatt;
     crsf.onPacketEsc            = onEsc;
-
-    /* Rafale neutre 200 ms pour sortir le RX du failsafe */
-    const uint32_t t0 = millis();
-    while (millis() - t0 < 200) {
-        for (uint8_t ch=1; ch<=CRSF_NUM_CHANNELS; ++ch) crsf.setChannel(ch,1500);
-        crsf.queuePacketChannels();
-        delayMicroseconds(PERIOD_US);
-    }
+    crsf.onPacketFlightMode     = onFlight;
 
     // Initialiser le shield USB
     if (Usb.Init() == -1) {
       Serial.println("USB Shield did not start.");
     }
 
+    /* Rafale neutre 1000 ms pour sortir le RX du failsafe */
+    const uint32_t t0 = millis();
+    while (millis() - t0 < 1000) {
+        for (uint8_t ch=1; ch<=CRSF_NUM_CHANNELS; ++ch) crsf.setChannel(ch, CRSF_CHAN_MID);
+        crsf.queuePacketChannels();
+        delayMicroseconds(PERIOD_US);
+    }
 }
 
 /* ----------------- LOOP ---------------------------------------- */
@@ -211,37 +235,65 @@ void loop()
 
     // gestion du crsf
     static uint32_t tLast = 0;
-    crsf.loop();                                  // lit la télémétrie
+    crsf.loop();
 
-  if (wheel.connected()) {
-    // Configure le retour de force
-    if (launched == 0){
-      sendPacket(packetInit);
-      delay(10);
-      sendPacket(packetForce50);
-      delay(10);
-      sendPacket(packetAngle);
-      delay(10);
-      sendPacket(packetEnd);
-      launched = 1;
-    }
-
-    if (micros() - tLast >= PERIOD_US) {
-
-      if (wheel.bouing_value == 1){
-        sendBouing();
+    if (wheel.connected()) {
+      // Configure le retour de force
+      if (launched == 0){
+        sendPacket(packetInit);
+        delay(10);
+        sendPacket(packetForce50);
+        delay(10);
+        sendPacket(packetAngle);
+        delay(10);
+        sendPacket(packetEnd);
+        launched = 1;
       }
 
-      uint16_t volant_value = constrain(wheel.volant_value + OFFSET_CAR + OFFSET_VOLANT, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
-      uint16_t vitesse_value = constrain(CRSF_CHANNEL_VALUE_MID + wheel.accel_value - wheel.frein_value, CRSF_CHANNEL_VALUE_MIN, CRSF_CHANNEL_VALUE_MAX);
+//      if (wheel.bouing_value == 1){
+//        sendBouing();
+//      }
 
-      // Rempli le paquet
-      for (uint8_t ch=2; ch<=CRSF_NUM_CHANNELS; ++ch) crsf.setChannel(ch, CRSF_CHANNEL_VALUE_MID);
-      crsf.setChannel(0, vitesse_value);
-      crsf.setChannel(1, volant_value);
+      if (armed == 0){
+        // Arming
+        Serial.println("Arming. please wait");
+        sendArmCH5(1000, 5000);
+        Serial.println("Arming. Sending 2000");
+        sendArmCH5(2000, 1000);
+        Serial.println("Arming. Sending 1000");
+        sendArmCH5(1000, 1000);
+        Serial.println("Arming. Sending 2000");
+        sendArmCH5(2000, 1000);
+        Serial.println("Arming. Sending 1000");
+        sendArmCH5(1000, 1000);
+
+        armed = 1;
+      }
+
+      // 250Hz
+      if (micros() - tLast >= PERIOD_US) {
+  
+      uint16_t volant_us  = constrain(wheel.volant_value  + OFFSET_VOLANT,
+                                      CRSF_CHAN_MIN, CRSF_CHAN_MAX);
+    
+      uint16_t vitesse_us = constrain(CRSF_CHAN_MID + wheel.accel_value - wheel.frein_value,
+                                      CRSF_CHAN_MIN, CRSF_CHAN_MAX);
+    
+      /* remplit les 16 voies */
+      for (uint8_t ch = 1; ch <= CRSF_NUM_CHANNELS; ++ch) crsf.setChannel(ch, CRSF_CHAN_MID);
+      crsf.setChannel(3, vitesse_us);    // CH3 = throttle (ex.)
+      crsf.setChannel(4, volant_us);     // CH4 = steering
+      crsf.setChannel(5, 1000);          // CH5 = stay armed
+
       crsf.queuePacketChannels();
 
       tLast = micros();
+
+    
+      //Serial.print("  volant_value=");
+      //Serial.print(volant_us);
+      //Serial.print("  vitesse_value=");
+      //Serial.println(vitesse_us);
+      }
     }
-  }
 }

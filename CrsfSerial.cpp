@@ -1,35 +1,5 @@
 #include "CrsfSerial.h"
 
-// static void hexdump(void *p, size_t len)
-// {
-//     char *data = (char *)p;
-//     while (len > 0)
-//     {
-//         uint8_t linepos = 0;
-//         char* linestart = data;
-//         // Binary part
-//         while (len > 0 && linepos < 16)
-//         {
-//             if (*data < 0x0f)
-//             Serial.write('0');
-//             Serial.print(*data, HEX);
-//             Serial.write(' ');
-//             ++data;
-//             ++linepos;
-//             --len;
-//         }
-
-//         // Spacer to align last line
-//         for (uint8_t i = linepos; i < 16; ++i)
-//             Serial.print("   ");
-
-//         // ASCII part
-//         for (uint8_t i = 0; i < linepos; ++i)
-//             Serial.write((linestart[i] < ' ') ? '.' : linestart[i]);
-//         Serial.println();
-//     }
-// }
-
 CrsfSerial::CrsfSerial(HardwareSerial &port, uint32_t baud) :
     _port(port), _crc(0xd5), _baud(baud),
     _lastReceive(0), _lastChannelsPacket(0), _linkIsUp(false),
@@ -153,6 +123,9 @@ void CrsfSerial::processPacketIn(uint8_t len)
     case CRSF_FRAMETYPE_ESC_SENSOR:
         packetEsc(hdr);
         break;
+    case CRSF_FRAMETYPE_FLIGHT_MODE:
+        packetFlightMode(hdr);
+        break;
     }
 }
 
@@ -255,6 +228,13 @@ void CrsfSerial::packetEsc(const crsf_header_t *p)
     memcpy(&_escSensor, p->data, sizeof(_escSensor));
     if (onPacketEsc) onPacketEsc(&_escSensor);
 }
+
+void CrsfSerial::packetFlightMode(const crsf_header_t *p)
+{
+    memcpy(&_flightMode, p->data, sizeof(_flightMode));
+    if (onPacketFlightMode) onPacketFlightMode(&_flightMode);
+}
+
 
 void CrsfSerial::write(uint8_t b)
 {
