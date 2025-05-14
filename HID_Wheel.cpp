@@ -17,27 +17,6 @@ void printSectionBin(uint8_t *buf, size_t len, uint8_t begin, uint8_t end) {
     Serial.println();
 }
 
-void printBin(uint8_t *buf, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        for (int j = 7; j >= 0; j--) {
-            Serial.print((buf[i] >> j) & 1); // Affiche chaque bit
-        }
-        Serial.print(" "); // Espace entre chaque octet
-    }
-    Serial.println(); // Nouvelle ligne à la fin
-}
-
-void printHex(uint8_t *buf, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        if (buf[i] < 0x10) {
-            Serial.print("0"); // Ajoute un zéro devant pour les valeurs < 0x10
-        }
-        Serial.print(buf[i], HEX);
-        Serial.print(" "); // Espace entre chaque octet
-    }
-    Serial.println(); // Nouvelle ligne à la fin
-}
-
 void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *buf) {
   // 1) Vérifier si on est sur un device supporté
   if (!isThrustmasterNew() && !isThrustmasterOld() && !isLogitech()) {
