@@ -85,6 +85,7 @@ void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *
 
     //raw
     //printSectionBin(buf, len, 43, 45);
+    /*
     Serial.print("Trustmaster Old : ");
     Serial.print("  Volant=");
     Serial.print(volant_value);
@@ -92,6 +93,7 @@ void HID_Wheel::ParseHIDData(USBHID *hid, bool is_rpt_id, uint8_t len, uint8_t *
     Serial.print(accel_value);
     Serial.print("  Frein=");
     Serial.println(frein_value);
+    */
   }
   else if (isLogitech()) {
     // On suppose qu'il envoie 7 octets, etc.

@@ -41,6 +41,8 @@ constexpr uint32_t CRSF_BAUD         = 420000; // 250 Hz
 constexpr uint32_t PERIOD_RC_US      = 4000;   // 4 ms
 constexpr uint32_t PERIOD_FORCE_MS   = 100;   // 150ms
 
+#define ARMING_BUTTON 34
+
 #define CRSF_CHAN_MIN 1000
 #define CRSF_CHAN_MAX 2000
 #define CRSF_CHAN_MID 1500
@@ -216,11 +218,43 @@ void sendBouing() {
     sendPacket(packetEnd);
 }
 
+void sendAutoArming(){
+    Serial.println("Arming. please wait");
+    sendArmingPacket(1000, 5000);
+    Serial.println("Arming. Sending 2000");
+    sendArmingPacket(2000, 1000);
+    Serial.println("Arming. Sending 1000");
+    sendArmingPacket(1000, 1000);
+    Serial.println("Arming. Sending 2000");
+    sendArmingPacket(2000, 1000);
+    Serial.println("Arming. Sending 1000");
+    sendArmingPacket(1000, 1000);    
+}
+
+
+void debugShowFPS()
+{
+    static uint32_t lastStamp = 0;
+    static uint32_t counter   = 0;
+
+    ++counter;
+
+    uint32_t now = millis();
+    if (now - lastStamp >= 1000) {
+        Serial.printf("[FPS] %luHz\n", counter);
+        counter   = 0;
+        lastStamp = now;
+    }
+}
+
 /* ----------------- SETUP --------------------------------------- */
 void setup()
 {
     Serial.begin(115200);
     pinMode(PIN_RX, INPUT_PULLUP);
+    // PUSHTEST
+    pinMode(ARMING_BUTTON, INPUT);
+
     uart.begin(CRSF_BAUD, SERIAL_8N1, PIN_RX, PIN_TX, true); // inversé
 
     Crsf.begin();
@@ -269,21 +303,10 @@ void loop()
 //      if (wheel.bouing_value == 1){
 //        sendBouing();
 //      }
-
-        // Arming
-        if (armed == 0){
-            Serial.println("Arming. please wait");
-            sendArmingPacket(1000, 5000);
-            Serial.println("Arming. Sending 2000");
-            sendArmingPacket(2000, 1000);
-            Serial.println("Arming. Sending 1000");
-            sendArmingPacket(1000, 1000);
-            Serial.println("Arming. Sending 2000");
-            sendArmingPacket(2000, 1000);
-            Serial.println("Arming. Sending 1000");
-            sendArmingPacket(1000, 1000);
-            armed = 1;
-        }
+//      if (armed == 0){
+//          sendAutoArming();
+//          armed = 1;
+//      }
 
         // 150 Hz
         if (millis() - tLastForce >= PERIOD_FORCE_MS){
@@ -324,5 +347,13 @@ void loop()
 
             tLastRC = micros();
         }
+
+        if (digitalRead(ARMING_BUTTON) == HIGH)
+        { 
+            sendArmingPacket(2000, 100);
+            Serial.println("ARMING..."); 
+        }
+
+        debugShowFPS();
     }
 }
