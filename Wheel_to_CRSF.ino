@@ -34,12 +34,28 @@
 #include "HID_Wheel.h"
 #include <usbhub.h>
 
+// Ecran
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+#define STR_TRIM 14
+#define SPD_MAX 27
+
+int offset_volant_value = 0;
+int offset_vitesse_value = 0;
+
 /* ----------------- Broches & constantes ------------------------- */
 constexpr uint8_t  PIN_RX = 2;           // entrée
 constexpr uint8_t  PIN_TX = 4;           // sortie via 1 kΩ
 constexpr uint32_t CRSF_BAUD         = 420000; // 250 Hz
 constexpr uint32_t PERIOD_RC_US      = 4000;   // 4 ms
 constexpr uint32_t PERIOD_FORCE_MS   = 100;   // 150ms
+constexpr uint32_t PERIOD_SCREEN_MS  = 100;   // 150ms
+constexpr uint32_t PERIOD_POTS_MS    = 100;   // 150ms
 
 #define ARMING_BUTTON 34
 
@@ -62,14 +78,25 @@ USB          Usb;
 USBHub       Hub(&Usb);
 HID_Wheel    wheel(&Usb);
 
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
 static unsigned long lastSend  = 0;
 static unsigned long lastPrint = 0;
 static uint8_t launched = 0;
 static uint8_t bouing = 0;
 static uint8_t armed = 0;
 
-/* ----------------- Paquets pour le volant ---------------------- */
 
+char flight_mode[9];
+char link_info[32]     = "";            // "LQ et RSSI"
+char battery_info[32]  = "";         // "TENSION/% 55 %"
+char linkStr[16]       = "LINK ???";     // affichage
+bool link_status       = false;          // état logiciel
+
+uint32_t last_telemetry = 0; 
+
+/* ----------------- Paquets pour le volant ---------------------- */
 // Angle configuré
 uint8_t packetAngle[64] = {
     0x60, 0x08, 0x11, 0x5e, 0x42
@@ -136,7 +163,7 @@ void onOob(uint8_t b)               // appelé pour chaque octet « hors CRSF »
     if (pos >= sizeof(buf)) pos = 0;  // sécurité débordement
 }
 
-// Arming sur le canal 5
+/* ----------------- Arming sur le canal 5 ------------------------ */
 void sendArmingPacket(uint16_t value, uint32_t duree_ms)
 {
     const uint32_t start = millis();
@@ -156,25 +183,37 @@ void sendArmingPacket(uint16_t value, uint32_t duree_ms)
 /* ----------------- Callbacks telemetry ------------------------ */
 void onLink(crsfLinkStatistics_t *l)
 {
-    Serial.printf("[LINK] LQ:%u RSSI:%d SNR:%d\n",
-                  l->uplink_Link_quality,
-                  l->uplink_RSSI_1,
-                  l->uplink_SNR);
+    snprintf(link_info, sizeof(link_info),
+             "LQ:%u RSSI:%d",            // ex. "LQ:97 RSSI:-46"
+             l->uplink_Link_quality,
+             l->uplink_RSSI_1);
+
+    Serial.printf("[LINK] %s SNR:%d\n",
+                  link_info, l->uplink_SNR);
+
+    // On met à jour la detection de lien perdu
+    last_telemetry = millis();
 }
+
+void onBatt(crsf_sensor_battery_t *b)
+{
+    float v = be16toh(b->voltage) / 10.0f;   // dixièmes de volt → volt
+    uint8_t pct = b->remaining;
+
+    snprintf(battery_info, sizeof(battery_info),
+             "%.1fV %.1fA %u%%",                // ex. "15.3 V 67 %"
+             be16toh(b->current) / 10.0f, v, pct);
+
+    Serial.printf("[BATT] %s\n",
+                  battery_info);
+}
+
 
 void onGps (crsf_sensor_gps_t *g)
 {
     Serial.printf("[GPS]  %.7f  %.7f  alt:%d  sats:%u\n",
                   g->latitude /1e7, g->longitude/1e7,
                   g->altitude, g->satellites);
-}
-
-void onBatt(crsf_sensor_battery_t *b)
-{
-    Serial.printf("[BATT] %.1f V  %.1f A  %u %%\n",
-                  be16toh(b->voltage)/10.0,
-                  be16toh(b->current)/10.0,
-                  b->remaining);
 }
 
 void onEsc (crsf_sensor_esc_t *e)
@@ -188,9 +227,14 @@ void onFlight(crsf_flight_mode_t *fm)
     char mode[16];
     memcpy(mode, fm->mode, 15);
     mode[15] = '\0';
+
     size_t n = strnlen(mode, 15);
-    while (n && mode[n-1] == ' ') mode[--n] = '\0';   // trim trailing blanks
-    Serial.printf("[MODE] %s\n", mode);
+    while (n && mode[n-1] == ' ') mode[--n] = '\0';
+
+    bool isAcro = (strcasestr(mode, "ACRO") != nullptr);
+    strcpy(flight_mode, isAcro ? "ARMED" : "DESARMED");
+
+    Serial.printf("[MODE] %-15s\n", mode);
 }
 
 // Send to wheel
@@ -255,6 +299,13 @@ void setup()
     // PUSHTEST
     pinMode(ARMING_BUTTON, INPUT);
 
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D for 128x64
+        Serial.println(F("SSD1306 allocation failed"));
+        for(;;);
+    }
+    delay(500);
+    display.clearDisplay();
+
     uart.begin(CRSF_BAUD, SERIAL_8N1, PIN_RX, PIN_TX, true); // inversé
 
     Crsf.begin();
@@ -282,8 +333,10 @@ void setup()
 /* ----------------- LOOP ---------------------------------------- */
 void loop()
 {
-    static uint32_t tLastRC     = 0;
-    static uint32_t tLastForce  = 0;
+    static uint32_t refreshRC      = 0;
+    static uint32_t refreshForce   = 0;
+    static uint32_t refreshScreen  = 0;
+    static uint32_t refreshPots    = 0;
 
     // Gère la pile USB, déclenche Parse() quand un rapport arrive
     Usb.Task();
@@ -309,7 +362,7 @@ void loop()
 //      }
 
         // 150 Hz
-        if (millis() - tLastForce >= PERIOD_FORCE_MS){
+        if (millis() - refreshForce >= PERIOD_FORCE_MS){
 
             uint16_t vitesse_us = constrain(CRSF_CHAN_MID
                                             + wheel.accel_value
@@ -326,15 +379,15 @@ void loop()
 
 
             sendForce(pct);
-            tLastForce = millis();
+            refreshForce = millis();
         }
 
         // 250Hz
-        if (micros() - tLastRC >= PERIOD_RC_US) {
-            uint16_t volant_us  = constrain(wheel.volant_value  + OFFSET_VOLANT,
+        if (micros() - refreshRC >= PERIOD_RC_US) {
+            uint16_t volant_us  = constrain(wheel.volant_value  + offset_volant_value,
                                           CRSF_CHAN_MIN, CRSF_CHAN_MAX);
 
-            uint16_t vitesse_us = constrain(CRSF_CHAN_MID + wheel.accel_value - wheel.frein_value,
+            uint16_t vitesse_us = constrain(CRSF_CHAN_MID + ((int16_t)((float)wheel.accel_value * (float)offset_vitesse_value) / 100.0) - wheel.frein_value,
                                           CRSF_VITESSE_MIN, CRSF_CHAN_MAX);
 
             /* remplit les 16 voies */
@@ -345,15 +398,62 @@ void loop()
 
             Crsf.queuePacketChannels();
 
-            tLastRC = micros();
+            refreshRC = micros();
         }
-
-        if (digitalRead(ARMING_BUTTON) == HIGH)
-        { 
-            sendArmingPacket(2000, 100);
-            Serial.println("ARMING..."); 
-        }
-
-        debugShowFPS();
     }
+
+    // ARMING
+    if (digitalRead(ARMING_BUTTON) == HIGH)
+    { 
+        sendArmingPacket(2000, 100);
+        Serial.println("ARMING..."); 
+    }
+
+    // ECRAN
+    // 10Hz
+    if (millis() - refreshScreen >= PERIOD_SCREEN_MS){
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(WHITE);
+        display.setCursor(0, 10);
+        display.printf("OFF. VOLANT: %i\n", offset_volant_value);
+        display.setCursor(0, 20);
+        display.printf("OFF. SPEED: %i%\n", offset_vitesse_value);
+        display.setCursor(0, 30);
+        if (millis() - last_telemetry > 1500) {
+            display.printf("BAT: ???\n");
+            display.setCursor(0, 40);
+            display.printf("LINK LOST");
+            display.setCursor(0, 50);
+            display.printf("STATUS: ???\n");
+        } else {
+            display.printf("BAT: %s\n", battery_info);
+            display.setCursor(0, 40);
+            display.printf("%s\n", link_info);
+            display.setCursor(0, 50);
+            display.printf("STATUS: %s\n", flight_mode);
+        }
+        display.display();
+
+        refreshScreen = millis();
+    }
+
+    // POTS
+    // 10Hz
+    if (millis() - refreshPots >= PERIOD_POTS_MS){
+        offset_volant_value = analogRead(STR_TRIM);
+        offset_vitesse_value = analogRead(SPD_MAX);
+        
+        // Pot d'ajustement du point milieu
+        offset_volant_value = map(offset_volant_value,0,4095,-70,70);
+
+        // Pot de réduction de vitesse max : entre 16% (sinon la voiture ne démarre pas)
+        // et 100% de la valeur
+        offset_vitesse_value = map(offset_vitesse_value,0,4095,16,100);
+
+        refreshPots = millis();
+    }
+
+    debugShowFPS();
+
 }
