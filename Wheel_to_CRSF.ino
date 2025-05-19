@@ -15,14 +15,10 @@
  *      • On répond au DEVICE_PING (0x28) par DEVICE_INFO (0x29).
  */
 
-//-> refacto le code
+//-> Refaire l'arming : inverser la logique, mettre un SPDT, et voir si on met les infos du volant
 //-> PCB
 //-> support d'écran
-//-> mettre les infos sur l'écran
-//-> pot de réglage de volant
-//-> mettre un bouton pour l'arming
-//-> retour de force proportionnel à la vitesse
-//-> paddles du volante : passage de vitesses ?
+//-> paddles du volant : passage de vitesses ?
 //-> runcam : configurer l'esd
 //-> usiner une piece pour les amortisseurs
  
@@ -163,23 +159,6 @@ void onOob(uint8_t b)               // appelé pour chaque octet « hors CRSF »
     if (pos >= sizeof(buf)) pos = 0;  // sécurité débordement
 }
 
-/* ----------------- Arming sur le canal 5 ------------------------ */
-void sendArmingPacket(uint16_t value, uint32_t duree_ms)
-{
-    const uint32_t start = millis();
-    while (millis() - start < duree_ms)
-    {
-        /* Prépare les 16 canaux à MID*/
-        for (uint8_t ch = 1; ch <= CRSF_NUM_CHANNELS; ++ch)
-            Crsf.setChannel(ch, CRSF_CHAN_MID);
-        Crsf.setChannel(5, value);   // CH5 à la valeur voulue
-        /* Envoie le paquet */
-        Crsf.queuePacketChannels();
-        /* Cadence = 250 Hz */
-        delayMicroseconds(PERIOD_RC_US);
-    }
-}
-
 /* ----------------- Callbacks telemetry ------------------------ */
 void onLink(crsfLinkStatistics_t *l)
 {
@@ -262,6 +241,7 @@ void sendBouing() {
     sendPacket(packetEnd);
 }
 
+// Not used
 void sendAutoArming(){
     Serial.println("Arming. please wait");
     sendArmingPacket(1000, 5000);
@@ -275,6 +255,23 @@ void sendAutoArming(){
     sendArmingPacket(1000, 1000);    
 }
 
+/* ----------------- Arming sur le canal 5 ------------------------ */
+// Not used
+void sendArmingPacket(uint16_t value, uint32_t duree_ms)
+{
+    const uint32_t start = millis();
+    while (millis() - start < duree_ms)
+    {
+        /* Prépare les 16 canaux à MID*/
+        for (uint8_t ch = 1; ch <= CRSF_NUM_CHANNELS; ++ch)
+            Crsf.setChannel(ch, CRSF_CHAN_MID);
+        Crsf.setChannel(5, value);   // CH5 à la valeur voulue
+        /* Envoie le paquet */
+        Crsf.queuePacketChannels();
+        /* Cadence = 250 Hz */
+        delayMicroseconds(PERIOD_RC_US);
+    }
+}
 
 void debugShowFPS()
 {
@@ -384,6 +381,14 @@ void loop()
 
         // 250Hz
         if (micros() - refreshRC >= PERIOD_RC_US) {
+
+            // ARMING
+            uint16_t arming = 2000;
+            if (digitalRead(ARMING_BUTTON) == HIGH)
+            { 
+                arming = 1000;
+            }
+
             uint16_t volant_us  = constrain(wheel.volant_value  + offset_volant_value,
                                           CRSF_CHAN_MIN, CRSF_CHAN_MAX);
 
@@ -394,19 +399,12 @@ void loop()
             for (uint8_t ch = 1; ch <= CRSF_NUM_CHANNELS; ++ch) Crsf.setChannel(ch, CRSF_CHAN_MID);
             Crsf.setChannel(3, vitesse_us);    // CH3 = throttle (ex.)
             Crsf.setChannel(4, volant_us);     // CH4 = steering
-            Crsf.setChannel(5, 1000);          // CH5 = stay armed
+            Crsf.setChannel(5, arming);        // CH5 = ARMING_BUTTON status
 
             Crsf.queuePacketChannels();
 
             refreshRC = micros();
         }
-    }
-
-    // ARMING
-    if (digitalRead(ARMING_BUTTON) == HIGH)
-    { 
-        sendArmingPacket(2000, 100);
-        Serial.println("ARMING..."); 
     }
 
     // ECRAN
