@@ -86,7 +86,7 @@ static uint8_t launched = 0;
 static uint8_t bouing = 0;
 static uint8_t armed = 0;
 
-char flight_mode[9];
+char arming_mode[9];
 char link_info[32]     = "";             // "LQ et RSSI"
 char battery_info[32]  = "";             // "TENSION/% 55 %"
 char linkStr[16]       = "LINK ???";     // affichage
@@ -202,8 +202,6 @@ void onBatt(crsf_sensor_battery_t *b)
 
     Serial.printf("[BATT] %s\n",
                   battery_info);
-
-    Serial.println(battery_voltage);
 }
 
 
@@ -220,7 +218,7 @@ void onEsc (crsf_sensor_esc_t *e)
     Serial.printf("[ESC] %.0f RPM  %d °C\n", rpm, e->temperature);
 }
 
-void onFlight(crsf_flight_mode_t *fm)
+void onFlight(crsf_arming_mode_t *fm)
 {
     char mode[16];
     memcpy(mode, fm->mode, 15);
@@ -230,7 +228,7 @@ void onFlight(crsf_flight_mode_t *fm)
     while (n && mode[n-1] == ' ') mode[--n] = '\0';
 
     bool isAcro = (strcasestr(mode, "ACRO") != nullptr);
-    strcpy(flight_mode, isAcro ? "ARMED" : "DESARMED");
+    strcpy(arming_mode, isAcro ? "ARMED" : "DESARMED");
 
     Serial.printf("[MODE] %-15s\n", mode);
 }
@@ -422,14 +420,14 @@ void loop()
         display.setTextSize(1);
         display.setTextColor(WHITE);
         display.setCursor(0, 10);
-        display.printf("OFF. VOLANT: %i\n", offset_volant_value);
+        display.printf("CENTRAGE: %i\n", offset_volant_value);
         display.setCursor(0, 20);
-        display.printf("OFF. SPEED: %i%\n", offset_vitesse_value);
+        display.printf("VIT. MAX: %i%\n", offset_vitesse_value);
         display.setCursor(0, 30);
         if (millis() - last_telemetry > 1500) {
             display.printf("BAT: ???\n");
             display.setCursor(0, 40);
-            display.printf("LINK LOST");
+            display.printf("LINK LOST !");
             display.setCursor(0, 50);
             display.printf("STATUS: ???\n");
         } else {
@@ -437,12 +435,12 @@ void loop()
                 display.printf("BAT: %s\n", battery_info);
                 display.setCursor(0, 40);
             } else {
-                display.printf("BAT: CHANGE BATTERY!!\n");
+                display.printf("!!! BATTERY LOW !!!\n");
                 display.setCursor(0, 40);                
             }
             display.printf("%s\n", link_info);
             display.setCursor(0, 50);
-            display.printf("STATUS: %s\n", flight_mode);
+            display.printf("STATUS: %s\n", arming_mode);
         }
         display.display();
 
