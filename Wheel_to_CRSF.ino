@@ -41,17 +41,6 @@
 #define STR_TRIM 14
 #define SPD_MAX 27
 
-int offset_volant_value = 0;
-int offset_vitesse_value = 0;
-
-/* ----------------- Broches & constantes ------------------------- */
-constexpr uint8_t  PIN_RX = 2;           // entrée
-constexpr uint8_t  PIN_TX = 4;           // sortie via 1 kΩ
-constexpr uint32_t CRSF_BAUD         = 420000; // 250 Hz
-constexpr uint32_t PERIOD_RC_US      = 4000;   // 4 ms
-constexpr uint32_t PERIOD_FORCE_MS   = 100;   // 150ms
-constexpr uint32_t PERIOD_SCREEN_MS  = 100;   // 150ms
-constexpr uint32_t PERIOD_POTS_MS    = 100;   // 150ms
 
 #define ARMING_BUTTON 34
 
@@ -65,6 +54,19 @@ constexpr uint32_t PERIOD_POTS_MS    = 100;   // 150ms
 #define OFFSET_CAR 0
 #define OFFSET_CAR_1_18 158
 
+// l'ESC dit, en dessous de 3.5/cell on fait un cutoff
+#define BATTERY_LOW_CUT 7.2
+#define BAT_MAX_MS 20000
+
+/* ----------------- Broches & constantes ------------------------- */
+constexpr uint8_t  PIN_RX = 2;           // entrée
+constexpr uint8_t  PIN_TX = 4;           // sortie via 1 kΩ
+constexpr uint32_t CRSF_BAUD         = 420000; // 250 Hz
+constexpr uint32_t PERIOD_RC_US      = 4000;   // 4 ms
+constexpr uint32_t PERIOD_FORCE_MS   = 100;   // 150ms
+constexpr uint32_t PERIOD_SCREEN_MS  = 100;   // 150ms
+constexpr uint32_t PERIOD_POTS_MS    = 100;   // 150ms
+
 /* ----------------- Objets -------------------------------------- */
 HardwareSerial uart(1);
 CrsfSerial     Crsf(uart, CRSF_BAUD);
@@ -77,18 +79,21 @@ HID_Wheel    wheel(&Usb);
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-static unsigned long lastSend  = 0;
-static unsigned long lastPrint = 0;
+int offset_volant_value = 0;
+int offset_vitesse_value = 0;
+
 static uint8_t launched = 0;
 static uint8_t bouing = 0;
 static uint8_t armed = 0;
 
-
 char flight_mode[9];
-char link_info[32]     = "";            // "LQ et RSSI"
-char battery_info[32]  = "";         // "TENSION/% 55 %"
+char link_info[32]     = "";             // "LQ et RSSI"
+char battery_info[32]  = "";             // "TENSION/% 55 %"
 char linkStr[16]       = "LINK ???";     // affichage
 bool link_status       = false;          // état logiciel
+
+float battery_voltage  = 8.0;            // Retour de tension de batterie
+uint32_t vmaxStamp     = 0;
 
 uint32_t last_telemetry = 0; 
 
@@ -176,15 +181,29 @@ void onLink(crsfLinkStatistics_t *l)
 
 void onBatt(crsf_sensor_battery_t *b)
 {
-    float v = be16toh(b->voltage) / 10.0f;   // dixièmes de volt → volt
-    uint8_t pct = b->remaining;
+    float b_vol = be16toh(b->voltage) / 10.0f;   // dixièmes de volt → volt
+    uint8_t battery_percent = b->remaining;
 
-    snprintf(battery_info, sizeof(battery_info),
-             "%.1fV %.1fA %u%%",                // ex. "15.3 V 67 %"
-             be16toh(b->current) / 10.0f, v, pct);
+    /* ---------------- reinit toutes les 30s ------------------- */
+    if (millis() - vmaxStamp > BAT_MAX_MS) {          // 30 000 ms
+        battery_voltage = b_vol;
+        vmaxStamp       = millis();
+    }
+
+    /* ---------- mise à jour du pic courant -------------------- */
+    if (b_vol > battery_voltage) {
+        battery_voltage = b_vol;
+        vmaxStamp       = millis();
+    }
+
+    snprintf(battery_info, sizeof(battery_info), 
+             "%.1fA %.1fV %u%%",                // ex. "15.3 V 67 %"
+             be16toh(b->current) / 10.0f, b_vol, battery_percent);
 
     Serial.printf("[BATT] %s\n",
                   battery_info);
+
+    Serial.println(battery_voltage);
 }
 
 
@@ -368,13 +387,8 @@ void loop()
 
             uint8_t pct;
             // on rend proportionnel la force entre 0 et 100
-            if (vitesse_us <= CRSF_CHAN_MID)
-                pct = 0;
-            else
-                pct = ( (vitesse_us - CRSF_CHAN_MID) * 100 )
-                      / (CRSF_CHAN_MAX - CRSF_CHAN_MID);   // (2000-1500)=500
-
-
+            if (vitesse_us <= CRSF_CHAN_MID) pct = 0;
+            else pct = ( (vitesse_us - CRSF_CHAN_MID) * 100 ) / (CRSF_CHAN_MAX - CRSF_CHAN_MID);   // (2000-1500)=500
             sendForce(pct);
             refreshForce = millis();
         }
@@ -384,6 +398,7 @@ void loop()
 
             // ARMING
             uint16_t arming = 2000;
+            // Check Arming AND battery voltage ? add && battery_voltage > BATTERY_LOW_CUT
             if (digitalRead(ARMING_BUTTON) == HIGH) arming = 1000;
             uint16_t volant_us  = constrain(wheel.volant_value  + offset_volant_value, CRSF_CHAN_MIN, CRSF_CHAN_MAX);
             uint16_t vitesse_us = constrain(CRSF_CHAN_MID + (int16_t)(((float)wheel.accel_value * (float)offset_vitesse_value) / 100.0) - wheel.frein_value, CRSF_VITESSE_MIN, CRSF_CHAN_MAX);
@@ -418,8 +433,13 @@ void loop()
             display.setCursor(0, 50);
             display.printf("STATUS: ???\n");
         } else {
-            display.printf("BAT: %s\n", battery_info);
-            display.setCursor(0, 40);
+            if (battery_voltage > BATTERY_LOW_CUT) {
+                display.printf("BAT: %s\n", battery_info);
+                display.setCursor(0, 40);
+            } else {
+                display.printf("BAT: CHANGE BATTERY!!\n");
+                display.setCursor(0, 40);                
+            }
             display.printf("%s\n", link_info);
             display.setCursor(0, 50);
             display.printf("STATUS: %s\n", flight_mode);
