@@ -384,16 +384,9 @@ void loop()
 
             // ARMING
             uint16_t arming = 2000;
-            if (digitalRead(ARMING_BUTTON) == HIGH)
-            { 
-                arming = 1000;
-            }
-
-            uint16_t volant_us  = constrain(wheel.volant_value  + offset_volant_value,
-                                          CRSF_CHAN_MIN, CRSF_CHAN_MAX);
-
-            uint16_t vitesse_us = constrain(CRSF_CHAN_MID + ((int16_t)((float)wheel.accel_value * (float)offset_vitesse_value) / 100.0) - wheel.frein_value,
-                                          CRSF_VITESSE_MIN, CRSF_CHAN_MAX);
+            if (digitalRead(ARMING_BUTTON) == HIGH) arming = 1000;
+            uint16_t volant_us  = constrain(wheel.volant_value  + offset_volant_value, CRSF_CHAN_MIN, CRSF_CHAN_MAX);
+            uint16_t vitesse_us = constrain(CRSF_CHAN_MID + (int16_t)(((float)wheel.accel_value * (float)offset_vitesse_value) / 100.0) - wheel.frein_value, CRSF_VITESSE_MIN, CRSF_CHAN_MAX);
 
             /* remplit les 16 voies */
             for (uint8_t ch = 1; ch <= CRSF_NUM_CHANNELS; ++ch) Crsf.setChannel(ch, CRSF_CHAN_MID);
