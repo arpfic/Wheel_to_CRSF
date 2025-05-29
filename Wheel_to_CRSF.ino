@@ -48,7 +48,7 @@
 #define CRSF_CHAN_MAX 2000
 #define CRSF_CHAN_MID 1500
 
-#define CRSF_VITESSE_MIN 1320
+#define CRSF_VITESSE_MIN 1250
 
 #define OFFSET_VOLANT 0
 #define OFFSET_CAR 0
@@ -57,6 +57,10 @@
 // l'ESC dit, en dessous de 3.5/cell on fait un cutoff
 #define BATTERY_LOW_CUT 7.2
 #define BAT_MAX_MS 20000
+
+#define LED_ARM  12
+#define LED_LINK 13
+#define LED_USB  15 
 
 /* ----------------- Broches & constantes ------------------------- */
 constexpr uint8_t  PIN_RX = 2;           // entrée
@@ -86,7 +90,7 @@ static uint8_t launched = 0;
 static uint8_t bouing = 0;
 static uint8_t armed = 0;
 
-char arming_mode[9];
+char flight_mode[9];
 char link_info[32]     = "";             // "LQ et RSSI"
 char battery_info[32]  = "";             // "TENSION/% 55 %"
 char linkStr[16]       = "LINK ???";     // affichage
@@ -218,7 +222,7 @@ void onEsc (crsf_sensor_esc_t *e)
     Serial.printf("[ESC] %.0f RPM  %d °C\n", rpm, e->temperature);
 }
 
-void onFlight(crsf_arming_mode_t *fm)
+void onFlight(crsf_flight_mode_t *fm)
 {
     char mode[16];
     memcpy(mode, fm->mode, 15);
@@ -228,7 +232,10 @@ void onFlight(crsf_arming_mode_t *fm)
     while (n && mode[n-1] == ' ') mode[--n] = '\0';
 
     bool isAcro = (strcasestr(mode, "ACRO") != nullptr);
-    strcpy(arming_mode, isAcro ? "ARMED" : "DESARMED");
+    strcpy(flight_mode, isAcro ? "ARMED" : "DESARMED");
+
+    // ARMED LED
+    digitalWrite(LED_ARM, isAcro ? HIGH : LOW);
 
     Serial.printf("[MODE] %-15s\n", mode);
 }
@@ -313,6 +320,15 @@ void setup()
     // PUSHTEST
     pinMode(ARMING_BUTTON, INPUT);
 
+    // LEDS
+    pinMode(LED_ARM,  OUTPUT);
+    pinMode(LED_LINK, OUTPUT);
+    pinMode(LED_USB,  OUTPUT);
+
+    digitalWrite(LED_ARM, LOW);
+    digitalWrite(LED_LINK, LOW);
+    digitalWrite(LED_USB, LOW);
+
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D for 128x64
         Serial.println(F("SSD1306 allocation failed"));
         for(;;);
@@ -377,7 +393,6 @@ void loop()
 
         // 150 Hz
         if (millis() - refreshForce >= PERIOD_FORCE_MS){
-
             uint16_t vitesse_us = constrain(CRSF_CHAN_MID
                                             + wheel.accel_value
                                             - wheel.frein_value,
@@ -393,7 +408,6 @@ void loop()
 
         // 250Hz
         if (micros() - refreshRC >= PERIOD_RC_US) {
-
             // ARMING
             uint16_t arming = 2000;
             // Check Arming AND battery voltage ? add && battery_voltage > BATTERY_LOW_CUT
@@ -411,40 +425,67 @@ void loop()
 
             refreshRC = micros();
         }
-    }
 
-    // ECRAN
-    // 10Hz
-    if (millis() - refreshScreen >= PERIOD_SCREEN_MS){
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(WHITE);
-        display.setCursor(0, 10);
-        display.printf("CENTRAGE: %i\n", offset_volant_value);
-        display.setCursor(0, 20);
-        display.printf("VIT. MAX: %i%\n", offset_vitesse_value);
-        display.setCursor(0, 30);
-        if (millis() - last_telemetry > 1500) {
-            display.printf("BAT: ???\n");
-            display.setCursor(0, 40);
-            display.printf("LINK LOST !");
-            display.setCursor(0, 50);
-            display.printf("STATUS: ???\n");
-        } else {
-            if (battery_voltage > BATTERY_LOW_CUT) {
-                display.printf("BAT: %s\n", battery_info);
+        // ECRAN
+        // 10Hz
+        if (millis() - refreshScreen >= PERIOD_SCREEN_MS){
+            // WHEEL CONNECTED
+            digitalWrite(LED_USB, HIGH);
+
+            display.clearDisplay();
+            display.setTextSize(1);
+            display.setTextColor(WHITE);
+            display.setCursor(0, 10);
+            display.printf("CENTRAGE: %i%%\n", offset_volant_value);
+            display.setCursor(0, 20);
+            display.printf("VIT. MAX: %i%%\n", offset_vitesse_value);
+            display.setCursor(0, 30);
+            if (millis() - last_telemetry > 1500) {
+                // LINK LOST
+                digitalWrite(LED_LINK, LOW);
+                digitalWrite(LED_ARM, LOW);
+                display.printf("BAT: ???\n");
                 display.setCursor(0, 40);
+                display.printf("LINK LOST !");
+                display.setCursor(0, 50);
+                display.printf("STATUS: ???\n");
             } else {
-                display.printf("!!! BATTERY LOW !!!\n");
-                display.setCursor(0, 40);                
+                // LINK OK
+                digitalWrite(LED_LINK, HIGH);
+                if (battery_voltage > BATTERY_LOW_CUT) {
+                    display.printf("BAT: %s\n", battery_info);
+                    display.setCursor(0, 40);
+                } else {
+                    display.printf("!!! BATTERY LOW !!!\n");
+                    display.setCursor(0, 40);                
+                }
+                display.printf("%s\n", link_info);
+                display.setCursor(0, 50);
+                display.printf("STATUS: %s\n", flight_mode);
             }
-            display.printf("%s\n", link_info);
-            display.setCursor(0, 50);
-            display.printf("STATUS: %s\n", arming_mode);
+            //display.setCursor(0,0);
+            //display.printf("DEBUG: %d\n", constrain(CRSF_CHAN_MID + (int16_t)(((float)wheel.accel_value * (float)offset_vitesse_value) / 100.0) - wheel.frein_value, CRSF_VITESSE_MIN, CRSF_CHAN_MAX));
+            display.display();
+    
+            refreshScreen = millis();
         }
-        display.display();
+    } else {
+        if (millis() - refreshScreen >= PERIOD_SCREEN_MS){
+            // NO WHEEL
+            digitalWrite(LED_USB, LOW);
+            display.clearDisplay();
+            display.setTextSize(1);
+            display.setTextColor(WHITE);
+            display.setCursor(0, 20);
+            display.printf("ATTENTE DU VOLANT\n");
+            display.setCursor(0, 30);
+            display.printf("THRUSTMASTER T-GT II\n");
+            display.setCursor(0, 40);
+            display.printf("...\n");
 
-        refreshScreen = millis();
+            display.display();
+            refreshScreen = millis();
+        }
     }
 
     // POTS
